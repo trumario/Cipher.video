@@ -7,11 +7,18 @@ import requests
 import gradio as gr
 from openai import OpenAI
 from typing import List, Dict, Any, Union, Optional
+from functools import wraps
+import time
 
 # Configuration - Load API key from environment variables
 XAI_API_KEY = os.getenv("XAI_API_KEY", "your_xai_api_key_here")
 DEFAULT_MODEL = "grok-2-1212"  # Text/coding default
 VISION_MODEL = "grok-4-0709"  # Vision-capable model for video and image analysis
+
+# Health check endpoint for deployment
+def health_check():
+    """Simple health check endpoint for deployment"""
+    return {"status": "healthy", "timestamp": time.time(), "service": "grok-chat-agent"}
 
 # Validate API key and create client with error handling
 def create_xai_client():
@@ -19,6 +26,7 @@ def create_xai_client():
     api_key = os.getenv("XAI_API_KEY")
     if not api_key or api_key == "your_xai_api_key_here":
         print("Warning: XAI_API_KEY not found or using placeholder value")
+        print("App will continue to run but AI functionality will be limited")
         return None
     
     try:
@@ -26,9 +34,18 @@ def create_xai_client():
             base_url="https://api.x.ai/v1",
             api_key=api_key
         )
+        # Test the client with a simple call to validate the key
+        try:
+            # This is a minimal test that won't count against usage
+            test_response = client.models.list()
+            print("API key validation successful")
+        except Exception as test_error:
+            print(f"API key validation failed: {test_error}")
+            print("App will continue to run but AI functionality may be limited")
         return client
     except Exception as e:
         print(f"Error creating xAI client: {e}")
+        print("App will continue to run but AI functionality will be limited")
         return None
 
 # Create xAI client
@@ -46,7 +63,7 @@ def query_grok_streaming(user_input: str, history: Optional[List] = None, model:
     
     # Check if client is available
     if client is None:
-        yield "Error: API client not available. Please check your XAI_API_KEY configuration."
+        yield "Error: API client not available. Please set your XAI_API_KEY in the environment variables to enable AI functionality. The application is running but AI features are disabled."
         return
     
     try:
@@ -363,22 +380,47 @@ with gr.Blocks(
             outputs=[output_video, save_location, status_output]
         )
 
+# Note: Gradio will automatically handle the root endpoint for health checks
+# The demo.launch() will make the app respond to requests at the root path
+
 # Launch the application
 if __name__ == "__main__":
-    # Get port from environment variable for deployment compatibility
-    port = int(os.getenv("PORT", "5000"))
-    
-    print(f"Starting Gradio app on port {port}")
-    print("API client status:", "Connected" if client else "Not connected")
-    
-    # Configure Gradio for deployment
-    demo.launch(
-        server_name="0.0.0.0",
-        server_port=port,
-        share=False,
-        show_error=True,
-        quiet=False,
-        favicon_path=None,
-        ssl_verify=False,
-        max_threads=10
-    )
+    try:
+        # Validate environment variables
+        required_env_vars = ["PORT"]
+        missing_vars = []
+        
+        # Get port from environment variable for deployment compatibility
+        port = int(os.getenv("PORT", "5000"))
+        
+        # Check optional but important environment variables
+        xai_key = os.getenv("XAI_API_KEY")
+        if not xai_key or xai_key == "your_xai_api_key_here":
+            print("Warning: XAI_API_KEY not properly configured. AI functionality will be limited.")
+            print("To enable full functionality, set your XAI_API_KEY in the environment variables.")
+        
+        print(f"Starting Gradio app on port {port}")
+        print("API client status:", "Connected" if client else "Not connected (app will still run)")
+        print(f"Application health check available at: http://0.0.0.0:{port}/")
+        
+        # Configure Gradio for deployment with enhanced settings
+        demo.launch(
+            server_name="0.0.0.0",
+            server_port=port,
+            share=False,
+            show_error=True,
+            quiet=False,
+            favicon_path=None,
+            ssl_verify=False,
+            max_threads=20,  # Increased for better deployment performance
+            inbrowser=False  # Disable auto-opening browser in deployment
+        )
+        
+    except ValueError as ve:
+        print(f"Configuration error: {ve}")
+        print("Please check your environment variables and configuration.")
+        exit(1)
+    except Exception as e:
+        print(f"Failed to start application: {e}")
+        print("Please check your configuration and try again.")
+        exit(1)
