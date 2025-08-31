@@ -636,6 +636,11 @@ if __name__ == "__main__":
         """Alternative health check endpoint"""
         return JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"})
     
+    @app.get("/")
+    async def root_health_check():
+        """Root endpoint health check for deployment"""
+        return JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent", "message": "Server is running"})
+    
     demo.launch(
         server_name="0.0.0.0",
         server_port=5000,
