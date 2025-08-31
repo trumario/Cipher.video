@@ -5,18 +5,98 @@ import cv2
 import subprocess
 import requests
 import gradio as gr
+import bcrypt
+import psycopg2
 from openai import OpenAI
 
 # Configuration - Load API key from environment variables
-XAI_API_KEY = os.getenv("XAI_API_KEY", "your_xai_api_key_here")
+XAI_API_KEY = os.getenv("XAI_API_KEY")
 DEFAULT_MODEL = "grok-2-1212"  # Text/coding default
 VISION_MODEL = "grok-4-0709"  # Vision-capable model for video and image analysis
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not XAI_API_KEY:
+    raise ValueError("XAI_API_KEY not set in environment variables.")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL not set in environment variables.")
 
 # Create xAI client using OpenAI pattern
 client = OpenAI(
     base_url="https://api.x.ai/v1",
     api_key=XAI_API_KEY
 )
+
+# Database setup
+def init_db():
+    """Initialize database with users table"""
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(50) UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def hash_password(password):
+    """Hash password using bcrypt"""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+
+def verify_password(password, hashed):
+    """Verify password against hash"""
+    return bcrypt.checkpw(password.encode('utf-8'), hashed)
+
+def register_user(username, password):
+    """Register a new user"""
+    if not username or not password:
+        return False, "Username and password required"
+    
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        # Check if user exists
+        cur.execute("SELECT username FROM users WHERE username = %s", (username,))
+        if cur.fetchone():
+            return False, "Username already exists"
+        
+        # Create user
+        password_hash = hash_password(password)
+        cur.execute("INSERT INTO users (username, password_hash) VALUES (%s, %s)", 
+                   (username, password_hash))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True, "Registration successful"
+    except Exception as e:
+        return False, f"Registration failed: {str(e)}"
+
+def authenticate_user(username, password):
+    """Authenticate user credentials"""
+    if not username or not password:
+        return False, "Username and password required"
+    
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("SELECT password_hash FROM users WHERE username = %s", (username,))
+        result = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if result and verify_password(password, result[0]):
+            return True, "Login successful"
+        return False, "Invalid credentials"
+    except Exception as e:
+        return False, f"Authentication failed: {str(e)}"
+
+# Initialize database
+init_db()
 
 def extract_image_url(message):
     """Extract image URLs from user message using regex"""
@@ -74,8 +154,16 @@ def query_grok_streaming(user_input, history=[], model=DEFAULT_MODEL, image_url=
     except Exception as e:
         yield f"Error communicating with Grok API: {str(e)}"
 
+# Global authentication state (simple approach for demo)
+auth_state = {"authenticated": False, "username": None}
+
 def chat_function(message, history):
     """Main chat function for Gradio interface"""
+    # Check if user is authenticated
+    if not auth_state.get('authenticated'):
+        yield "Please log in to use the chat feature."
+        return
+    
     image_url = extract_image_url(message)
     for partial_response in query_grok_streaming(message, history, image_url=image_url):
         yield partial_response
@@ -173,6 +261,10 @@ def overlay_videos(base_path, ghost_path, output_path, alpha=0.5, base_start_sec
 
 def process_video_overlay(base_upload, ghost_upload, alpha, base_start, ghost_start, duration):
     """Process video overlay with user inputs"""
+    # Check if user is authenticated
+    if not auth_state.get('authenticated'):
+        return None, "Please log in to use the video overlay feature."
+    
     if not base_upload or not ghost_upload:
         return None, "Please upload both base and ghost videos."
     
@@ -197,6 +289,26 @@ def process_video_overlay(base_upload, ghost_upload, alpha, base_start, ghost_st
         ghost_start, 
         duration
     )
+
+def handle_login(username, password):
+    """Handle user login"""
+    success, message = authenticate_user(username, password)
+    if success:
+        auth_state['authenticated'] = True
+        auth_state['username'] = username
+        return gr.update(visible=True), gr.update(visible=False), message
+    return gr.update(visible=False), gr.update(visible=True), message
+
+def handle_register(username, password):
+    """Handle user registration"""
+    success, message = register_user(username, password)
+    return message
+
+def handle_logout():
+    """Handle user logout"""
+    auth_state['authenticated'] = False
+    auth_state['username'] = None
+    return gr.update(visible=False), gr.update(visible=True), "Logged out successfully"
 
 
 # Custom CSS for stealthy dark/light themes (dark default)
@@ -303,6 +415,27 @@ button:hover {
     min-width: 40px !important;
     border-radius: 6px !important;
 }
+
+/* Hide Gradio branding */
+.footer, .gradio-footer, footer {
+    display: none !important;
+}
+
+.gr-button[title*="Built with Gradio"] {
+    display: none !important;
+}
+
+a[href*="gradio.app"] {
+    display: none !important;
+}
+
+.built-with, .gradio-link {
+    display: none !important;
+}
+
+div[style*="built with gradio"] {
+    display: none !important;
+}
 """
 
 # Create Gradio interface
@@ -323,33 +456,67 @@ with gr.Blocks(
                 return null;
             }""")
     
-    with gr.Tab("Code"):
-        chat_interface = gr.ChatInterface(
-            chat_function,
-            textbox=gr.Textbox(
-                placeholder="Enter code or image URL...",
-                container=False
-            )
-        )
+    # Login section
+    with gr.Group(visible=True) as login_section:
+        gr.Markdown("### Access Required")
+        with gr.Row():
+            username_input = gr.Textbox(label="Username", placeholder="Enter username")
+            password_input = gr.Textbox(label="Password", type="password", placeholder="Enter password")
+        with gr.Row():
+            login_btn = gr.Button("Login", variant="primary")
+            register_btn = gr.Button("Register")
+        auth_status = gr.Textbox(label="Status", interactive=False)
     
-    with gr.Tab("Video"):
+    # Main application tabs (hidden until authenticated)
+    with gr.Group(visible=False) as main_tabs:
         with gr.Row():
-            base_upload = gr.Video(label="Base")
-            ghost_upload = gr.Video(label="Ghost")
-        with gr.Row():
-            alpha_slider = gr.Slider(0.1, 1.0, value=0.5, label="Opacity")
-            base_start = gr.Number(value=0.0, label="Base Start")
-            ghost_start = gr.Number(value=0.0, label="Ghost Start")
-            duration = gr.Number(value=None, label="Duration")
-        process_btn = gr.Button("Process")
-        output_video = gr.Video(label="Output")
-        status_output = gr.Textbox(label="Status", interactive=False)
+            logout_btn = gr.Button("Logout", size="sm")
         
-        process_btn.click(
-            fn=process_video_overlay,
-            inputs=[base_upload, ghost_upload, alpha_slider, base_start, ghost_start, duration],
-            outputs=[output_video, status_output]
-        )
+        with gr.Tab("Code"):
+            chat_interface = gr.ChatInterface(
+                chat_function,
+                textbox=gr.Textbox(
+                    placeholder="Enter code or image URL...",
+                    container=False
+                )
+            )
+    
+        with gr.Tab("Video"):
+            with gr.Row():
+                base_upload = gr.Video(label="Base")
+                ghost_upload = gr.Video(label="Ghost")
+            with gr.Row():
+                alpha_slider = gr.Slider(0.1, 1.0, value=0.5, label="Opacity")
+                base_start = gr.Number(value=0.0, label="Base Start")
+                ghost_start = gr.Number(value=0.0, label="Ghost Start")
+                duration = gr.Number(value=None, label="Duration")
+            process_btn = gr.Button("Process")
+            output_video = gr.Video(label="Output")
+            status_output = gr.Textbox(label="Status", interactive=False)
+            
+            process_btn.click(
+                fn=process_video_overlay,
+                inputs=[base_upload, ghost_upload, alpha_slider, base_start, ghost_start, duration],
+                outputs=[output_video, status_output]
+            )
+    
+    # Event handlers for authentication
+    login_btn.click(
+        fn=handle_login,
+        inputs=[username_input, password_input],
+        outputs=[main_tabs, login_section, auth_status]
+    )
+    
+    register_btn.click(
+        fn=handle_register,
+        inputs=[username_input, password_input],
+        outputs=auth_status
+    )
+    
+    logout_btn.click(
+        fn=handle_logout,
+        outputs=[main_tabs, login_section, auth_status]
+    )
 
 # Launch the application
 if __name__ == "__main__":
@@ -358,5 +525,6 @@ if __name__ == "__main__":
         server_port=5000,
         share=False,
         show_error=True,
-        quiet=False
+        quiet=False,
+        show_api=False
     )
