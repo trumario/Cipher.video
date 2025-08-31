@@ -623,17 +623,26 @@ def check_health():
     """Simple health check endpoint that returns status"""
     return {"status": "healthy", "service": "Grok Chat Agent", "database": "connected"}
 
-# Add basic health endpoint after demo is created
+# Add health check endpoint using Gradio's built-in FastAPI app
 try:
-    from fastapi.responses import JSONResponse
+    from fastapi.responses import JSONResponse, PlainTextResponse
+    
+    @demo.app.get("/")
+    async def root():
+        """Root endpoint for health checks"""
+        return PlainTextResponse("OK", status_code=200)
     
     @demo.app.get("/health")
-    def health():
-        return JSONResponse(content=check_health())
+    async def health():
+        """Health check endpoint"""
+        return JSONResponse(content=check_health(), status_code=200)
         
     @demo.app.get("/api/health") 
-    def api_health():
-        return JSONResponse(content=check_health())
+    async def api_health():
+        """API health check endpoint"""
+        return JSONResponse(content=check_health(), status_code=200)
+        
+    print("Health check endpoints added successfully")
 except Exception as e:
     print(f"Warning: Could not add health endpoints: {e}")
 
@@ -641,6 +650,7 @@ except Exception as e:
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5000))
+    print(f"Starting Grok Chat Agent Server on port {port}")
     demo.launch(
         server_name="0.0.0.0",
         server_port=port,
