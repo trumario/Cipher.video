@@ -1,0 +1,70 @@
+08-31 15:58:44
+message_dicts = self._message_as_message_dict(message, role)
+08-31 15:58:44
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+08-31 15:58:44
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/gradio/chat_interface.py", line 905, in _message_as_message_dict
+08-31 15:58:44
+for x in msg.get("files", []):
+08-31 15:58:44
+^^^^^^^
+08-31 15:58:44
+AttributeError: 'generator' object has no attribute 'get'
+08-31 15:59:59
+Traceback (most recent call last):
+08-31 15:59:59
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/gradio/queueing.py", line 667, in process_events
+08-31 15:59:59
+response = await route_utils.call_process_api(
+08-31 15:59:59
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+08-31 15:59:59
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/gradio/route_utils.py", line 349, in call_process_api
+08-31 15:59:59
+output = await app.get_blocks().process_api(
+08-31 15:59:59
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+08-31 15:59:59
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/gradio/blocks.py", line 2274, in process_api
+08-31 15:59:59
+result = await self.call_function(
+08-31 15:59:59
+^^^^^^^^^^^^^^^^^^^^^^^^^
+08-31 15:59:59
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/gradio/blocks.py", line 1779, in call_function
+08-31 15:59:59
+prediction = await fn(*processed_input)
+08-31 15:59:59
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+08-31 15:59:59
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/gradio/utils.py", line 882, in async_wrapper
+08-31 15:59:59
+response = await f(*args, **kwargs)
+08-31 15:59:59
+^^^^^^^^^^^^^^^^^^^^^^^^
+08-31 15:59:59
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/gradio/chat_interface.py", line 551, in __wrapper
+08-31 15:59:59
+return await submit_fn(*args, **kwargs)
+08-31 15:59:59
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+08-31 15:59:59
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/gradio/chat_interface.py", line 933, in _submit_fn
+08-31 15:59:59
+history = self._append_message_to_history(response, history, "assistant")
+08-31 15:59:59
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+08-31 15:59:59
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/gradio/chat_interface.py", line 867, in _append_message_to_history
+08-31 15:59:59
+message_dicts = self._message_as_message_dict(message, role)
+08-31 15:59:59
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+08-31 15:59:59
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/gradio/chat_interface.py", line 905, in _message_as_message_dict
+08-31 15:59:59
+for x in msg.get("files", []):
+08-31 15:59:59
+^^^^^^^
+08-31 15:59:59
+AttributeError: 'generator' object has no attribute 'get'
