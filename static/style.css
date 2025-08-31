@@ -1,0 +1,233 @@
+/* Custom styling for the Grok-Powered Chat Agent */
+
+:root {
+    --primary-color: #667eea;
+    --secondary-color: #764ba2;
+    --accent-color: #007bff;
+    --background-light: #f8f9fa;
+    --border-color: #e9ecef;
+    --text-dark: #343a40;
+    --success-color: #28a745;
+    --warning-color: #ffc107;
+}
+
+/* Main container styling */
+.gradio-container {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    min-height: 100vh;
+}
+
+/* Header styling */
+.markdown h1 {
+    color: var(--primary-color);
+    text-align: center;
+    margin-bottom: 20px;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Tab navigation */
+.tab-nav button {
+    background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border: none;
+    border-radius: 8px 8px 0 0;
+    padding: 12px 24px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.tab-nav button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.tab-nav button.selected {
+    background: linear-gradient(45deg, var(--secondary-color), var(--primary-color));
+}
+
+/* Chat interface styling */
+.chat-message {
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin: 8px 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.chat-message.user {
+    background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    border-left: 4px solid var(--accent-color);
+}
+
+.chat-message.bot {
+    background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%);
+    border-left: 4px solid var(--secondary-color);
+}
+
+/* Video upload areas */
+.video-upload {
+    border: 3px dashed var(--border-color);
+    border-radius: 12px;
+    background: white;
+    transition: all 0.3s ease;
+    padding: 20px;
+    text-align: center;
+}
+
+.video-upload:hover {
+    border-color: var(--primary-color);
+    background: var(--background-light);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* Button styling */
+button.primary {
+    background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 24px;
+    font-weight: 600;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+button.primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+/* Slider styling */
+.slider input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+    border-radius: 3px;
+    outline: none;
+}
+
+.slider input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    background: white;
+    border: 3px solid var(--primary-color);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+/* Status box styling */
+.status-box {
+    background: linear-gradient(135deg, var(--background-light), white);
+    border-left: 4px solid var(--accent-color);
+    border-radius: 8px;
+    padding: 16px;
+    margin: 10px 0;
+    font-family: monospace;
+    font-size: 14px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Input field styling */
+input[type="text"], input[type="number"], textarea {
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    transition: border-color 0.3s ease;
+    background: white;
+}
+
+input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
+    border-color: var(--primary-color);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* Progress bar */
+.progress-bar {
+    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+    height: 4px;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .gradio-container {
+        padding: 10px;
+    }
+    
+    .tab-nav button {
+        padding: 8px 16px;
+        font-size: 14px;
+    }
+    
+    .chat-message {
+        padding: 8px 12px;
+        font-size: 14px;
+    }
+    
+    button.primary {
+        padding: 10px 20px;
+        font-size: 14px;
+    }
+}
+
+/* Loading animations */
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.loading {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Success and error states */
+.success {
+    color: var(--success-color);
+    font-weight: 600;
+}
+
+.error {
+    color: #dc3545;
+    font-weight: 600;
+}
+
+/* Video player styling */
+video {
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    max-width: 100%;
+    height: auto;
+}
+
+/* Example cards */
+.example-card {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px;
+    margin: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.example-card:hover {
+    border-color: var(--primary-color);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}

@@ -1,2 +1,32 @@
+modules = ["python-3.11"]
 [agent]
 expertMode = true
+integrations = ["python_xai==1.0.0"]
+
+[nix]
+channel = "stable-25_05"
+packages = ["ffmpeg-full"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Grok Chat Agent Server"
+
+[[workflows.workflow]]
+name = "Grok Chat Agent Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python main.py"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
