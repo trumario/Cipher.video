@@ -625,6 +625,11 @@ if __name__ == "__main__":
     
     # Create a custom FastAPI route for health check
     def add_health_route():
+        @demo.app.get("/")
+        def root_health_check():
+            """Root endpoint for deployment health checks"""
+            return JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent", "version": "1.0"})
+        
         @demo.app.get("/health")
         def health_check():
             """Health check endpoint for deployment"""
