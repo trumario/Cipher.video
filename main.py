@@ -10,7 +10,7 @@ from openai import OpenAI
 # Configuration - Load API key from environment variables
 XAI_API_KEY = os.getenv("XAI_API_KEY", "your_xai_api_key_here")
 DEFAULT_MODEL = "grok-2-1212"  # Text/coding default
-VISION_MODEL = "grok-2-vision-1212"  # Vision-capable model
+VISION_MODEL = "grok-4-0709"  # Vision-capable model for video and image analysis
 
 # Create xAI client using OpenAI pattern
 client = OpenAI(
@@ -30,7 +30,7 @@ def query_grok_streaming(user_input, history=[], model=DEFAULT_MODEL, image_url=
         messages = [
             {
                 "role": "system", 
-                "content": "You are a helpful assistant specializing in coding assistance and data analysis. For coding questions, provide clear explanations and working code examples. For images like charts or graphs, analyze the visual data in detail."
+                "content": "You are an expert developer proficient in multiple programming languages, with extensive experience in secure coding practices, performance optimization, and code refactoring across various paradigms (e.g., procedural, object-oriented, functional). Your goal is to review and refactor the provided code to ensure it meets the highest standards of quality, security, and efficiency, tailored to the specified or inferred language.\n\nStep-by-Step Instructions:\n1. Understand the Codebase Context: Analyze the provided code in the context of the broader codebase. Identify opportunities to leverage existing base layer components, functions, or modules instead of reinventing functionality.\n2. Security Audit: Conduct a thorough security review. Check for vulnerabilities such as injection risks, improper input validation, authentication/authorization flaws, sensitive data exposure, and resource management issues.\n3. Remove Redundancy: Identify and eliminate redundant code, including duplicated logic, unused variables, or unnecessary computations.\n4. Eliminate TODOs and Placeholders: Remove all TODO comments, FIXMEs, or incomplete sections.\n5. Replace Magic Numbers and Hardcoded Values: Replace them with named constants or enums.\n6. Optimize Performance: Replace slow algorithms with optimized alternatives. Use efficient data structures and apply language-specific optimization techniques.\n\nProvide the fully refactored code in a single, complete block, followed by a concise summary of changes made. Do not introduce new features; only refine the existing code."
             }
         ]
         
@@ -301,132 +301,39 @@ with gr.Blocks(
     css=CUSTOM_CSS
 ) as demo:
     
-    # Theme toggle button
     with gr.Row():
-        toggle_btn = gr.Button("Toggle Light/Dark Theme", size="sm")
+        toggle_btn = gr.Button("Theme", size="sm")
         toggle_btn.click(None, js="""() => {
             document.body.classList.toggle('light');
             return null;
         }""")
     
-    gr.Markdown(
-        """
-        # Cipher
-        
-        **Powered by xAI Grok** - Intelligent assistant for coding and media processing.
-        
-        - **Chat**: Coding assistance and image analysis from URLs
-        - **Video Overlay**: Blend two videos with customizable effects
-        """
-    )
-    
-    with gr.Tab("Chat Agent"):
-        gr.Markdown("### Coding Assistant & Image Analysis")
-        
+    with gr.Tab("Code"):
         chat_interface = gr.ChatInterface(
             chat_function,
             textbox=gr.Textbox(
-                placeholder="Ask about coding, paste an image URL for analysis, or request help with any programming topic...",
-                container=False,
-                scale=7
-            ),
-            title="Cipher Chat - Streaming Responses",
-            description="**Features**: Coding assistance with grok-2-1212 | Image analysis with grok-2-vision-1212 (auto-switching)",
-            examples=[
-                "How do I sort a list in Python using different methods?",
-                "Explain the difference between let, const, and var in JavaScript",
-                "Analyze this stock chart: https://example.com/stock-chart.png",
-                "Show me how to implement a binary search algorithm",
-                "What are the best practices for React component design?"
-            ]
+                placeholder="Enter code or image URL...",
+                container=False
+            )
         )
     
-    with gr.Tab("Video Overlay"):
-        gr.Markdown("### Video Overlay & Ghosting Tool")
-        gr.Markdown("Upload two videos to create a blended overlay effect with customizable opacity and timing.")
-        
+    with gr.Tab("Video"):
         with gr.Row():
-            with gr.Column():
-                base_upload = gr.Video(
-                    label="Base Video"
-                )
-                base_start = gr.Number(
-                    value=0.0,
-                    label="Base Start Time (seconds)",
-                    minimum=0.0,
-                    step=0.1
-                )
-            
-            with gr.Column():
-                ghost_upload = gr.Video(
-                    label="Ghost Video (Overlay)"
-                )
-                ghost_start = gr.Number(
-                    value=0.0,
-                    label="Ghost Start Time (seconds)",
-                    minimum=0.0,
-                    step=0.1
-                )
-        
+            base_upload = gr.Video(label="Base")
+            ghost_upload = gr.Video(label="Ghost")
         with gr.Row():
-            alpha_slider = gr.Slider(
-                minimum=0.1,
-                maximum=1.0,
-                value=0.5,
-                step=0.05,
-                label="Ghost Opacity (0.1 = very transparent, 1.0 = opaque)",
-                info="Higher values make the ghost video more visible"
-            )
-            duration = gr.Number(
-                value=None,
-                label="Duration Limit (seconds, optional)",
-                minimum=1,
-                step=1,
-                info="Leave empty to process entire video"
-            )
+            alpha_slider = gr.Slider(0.1, 1.0, value=0.5, label="Opacity")
+            base_start = gr.Number(value=0.0, label="Base Start")
+            ghost_start = gr.Number(value=0.0, label="Ghost Start")
+            duration = gr.Number(value=None, label="Duration")
+        process_btn = gr.Button("Process")
+        output_video = gr.Video(label="Output")
+        status_output = gr.Textbox(label="Status", interactive=False)
         
-        process_btn = gr.Button(
-            "Generate Overlaid Video",
-            variant="primary",
-            size="lg"
-        )
-        
-        with gr.Row():
-            output_video = gr.Video(
-                label="Output Video",
-                show_download_button=True
-            )
-            status_output = gr.Textbox(
-                label="Processing Status",
-                interactive=False
-            )
-        
-        # Connect the processing function
         process_btn.click(
             fn=process_video_overlay,
-            inputs=[
-                base_upload,
-                ghost_upload,
-                alpha_slider,
-                base_start,
-                ghost_start,
-                duration
-            ],
-            outputs=[output_video, status_output],
-            show_progress=True
-        )
-        
-        gr.Markdown(
-            """
-            ### Instructions:
-            1. **Upload Videos**: Select your base video and the ghost/overlay video
-            2. **Adjust Timing**: Set start times for each video (useful for synchronization)
-            3. **Set Opacity**: Control how transparent/opaque the ghost video appears
-            4. **Optional Duration**: Limit processing time or leave empty for full video
-            5. **Process**: Click generate to create your blended video with preserved audio
-            
-            **Supported formats**: MP4, AVI, MOV, and most common video formats
-            """
+            inputs=[base_upload, ghost_upload, alpha_slider, base_start, ghost_start, duration],
+            outputs=[output_video, status_output]
         )
 
 # Launch the application
