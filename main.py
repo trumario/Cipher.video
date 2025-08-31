@@ -134,14 +134,12 @@ def overlay_videos(base_path, ghost_path, output_path, alpha=0.5, base_start_sec
         # Calculate maximum frames if duration specified
         max_frames = int(duration_sec * fps) if duration_sec else None
         
-        # Setup video writer with H.264 codec
-        fourcc = cv2.VideoWriter.fourcc(*'H264')
-        try:
-            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        except:
-            # Fallback to mp4v if H.264 not available
-            fourcc = cv2.VideoWriter.fourcc(*'mp4v')
-            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        # Setup video writer with compatible codec
+        fourcc = cv2.VideoWriter.fourcc(*'mp4v')  # Use mp4v for better compatibility
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        
+        if not out.isOpened():
+            return None, "Error: Could not initialize video writer."
         
         frame_count = 0
         processed_frames = 0
@@ -173,32 +171,7 @@ def overlay_videos(base_path, ghost_path, output_path, alpha=0.5, base_start_sec
         cap_ghost.release()
         out.release()
         
-        # Add audio from base video using FFmpeg
-        try:
-            temp_video = output_path + '_temp_video_only.mp4'
-            os.rename(output_path, temp_video)
-            
-            # Use FFmpeg to combine processed video with original audio
-            subprocess.run([
-                'ffmpeg', '-y',  # Overwrite output files
-                '-i', temp_video,  # Video input
-                '-i', base_path,   # Audio source
-                '-c:v', 'copy',    # Copy video codec
-                '-c:a', 'aac',     # Audio codec
-                '-map', '0:v:0',   # Map video from first input
-                '-map', '1:a:0',   # Map audio from second input
-                '-shortest',       # Match shortest stream
-                output_path
-            ], check=True, capture_output=True)
-            
-            # Clean up temporary file
-            os.remove(temp_video)
-            return output_path, f"Successfully processed {processed_frames} frames with audio preserved."
-            
-        except subprocess.CalledProcessError as e:
-            return output_path, f"Video overlay completed ({processed_frames} frames), but audio processing failed: {e}"
-        except Exception as e:
-            return output_path, f"Video overlay completed ({processed_frames} frames), but audio processing failed: {str(e)}"
+        return output_path, f"Successfully processed {processed_frames} frames. Video saved to: {output_path}"
             
     except Exception as e:
         return None, f"Video processing failed: {str(e)}"
@@ -206,12 +179,15 @@ def overlay_videos(base_path, ghost_path, output_path, alpha=0.5, base_start_sec
 def process_video_overlay(base_upload, ghost_upload, alpha, base_start, ghost_start, duration):
     """Process video overlay with user inputs"""
     if not base_upload or not ghost_upload:
-        return None, "Please upload both base and ghost videos."
+        return None, None, "Please upload both base and ghost videos."
     
     if alpha < 0.1 or alpha > 1.0:
-        return None, "Alpha value must be between 0.1 and 1.0"
+        return None, None, "Alpha value must be between 0.1 and 1.0"
     
-    output_path = "output_overlay.mp4"
+    # Create unique output filename with timestamp
+    import time
+    timestamp = int(time.time())
+    output_path = f"overlay_output_{timestamp}.mp4"
     
     # Ensure start times are non-negative
     base_start = max(0.0, base_start)
@@ -220,7 +196,7 @@ def process_video_overlay(base_upload, ghost_upload, alpha, base_start, ghost_st
     # Process duration (None means process entire video)
     duration = duration if duration and duration > 0 else None
     
-    return overlay_videos(
+    result_path, status_msg = overlay_videos(
         base_upload, 
         ghost_upload, 
         output_path, 
@@ -229,6 +205,8 @@ def process_video_overlay(base_upload, ghost_upload, alpha, base_start, ghost_st
         ghost_start, 
         duration
     )
+    
+    return result_path, output_path, status_msg
 
 
 # Custom CSS for stealthy dark/light themes (dark default)
@@ -376,12 +354,13 @@ with gr.Blocks(
             duration = gr.Number(value=None, label="Duration")
         process_btn = gr.Button("Process")
         output_video = gr.Video(label="Output")
+        save_location = gr.Textbox(label="Save Location", interactive=False)
         status_output = gr.Textbox(label="Status", interactive=False)
         
         process_btn.click(
             fn=process_video_overlay,
             inputs=[base_upload, ghost_upload, alpha_slider, base_start, ghost_start, duration],
-            outputs=[output_video, status_output]
+            outputs=[output_video, save_location, status_output]
         )
 
 # Launch the application
