@@ -121,10 +121,16 @@ def query_grok_streaming(user_input: str, history: Optional[List] = None, model:
         yield f"Error communicating with Grok API: {str(e)}"
         return
 
-def chat_function(message: str, history: List) -> Generator[str, None, None]:
+def chat_function(message: str, history: List) -> str:
     """Main chat function for Gradio interface"""
     image_url = extract_image_url(message)
-    return query_grok_streaming(message, history, image_url=image_url)
+    
+    # Collect all streaming responses into a single string
+    full_response = ""
+    for partial_response in query_grok_streaming(message, history, image_url=image_url):
+        full_response = partial_response  # Each yield contains the complete message so far
+    
+    return full_response
 
 def overlay_videos(base_path: str, ghost_path: str, output_path: str, alpha: float = 0.5, base_start_sec: float = 0.0, ghost_start_sec: float = 0.0, duration_sec: Optional[float] = None) -> Tuple[Optional[str], str]:
     """Overlay two videos with customizable parameters"""
