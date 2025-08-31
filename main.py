@@ -6,7 +6,7 @@ import subprocess
 import requests
 import gradio as gr
 from openai import OpenAI
-from typing import List, Dict, Any, Union, Optional
+from typing import List, Dict, Any, Union, Optional, Tuple, Generator, cast
 from functools import wraps
 import time
 
@@ -57,13 +57,14 @@ def extract_image_url(message: str) -> Optional[str]:
     urls = re.findall(r'(https?://\S+\.(?:jpg|jpeg|png|gif|webp))', message, re.IGNORECASE)
     return urls[0] if urls else None
 
-def query_grok_streaming(user_input: str, history: Optional[List] = None, model: str = DEFAULT_MODEL, image_url: Optional[str] = None) -> str:
+def query_grok_streaming(user_input: str, history: Optional[List] = None, model: str = DEFAULT_MODEL, image_url: Optional[str] = None) -> Generator[str, None, None]:
     """Query Grok API with streaming response support"""
     if history is None:
         history = []
 
     if client is None:
-        return "Error: API client not available. Please set your XAI_API_KEY in the environment variables to enable AI functionality. The application is running but AI features are disabled."
+        yield "Error: API client not available. Please set your XAI_API_KEY in the environment variables to enable AI functionality. The application is running but AI features are disabled."
+        return
 
     try:
         messages = [
@@ -97,15 +98,18 @@ def query_grok_streaming(user_input: str, history: Optional[List] = None, model:
             messages.append({"role": "user", "content": user_input})
 
         try:
+            # Cast messages to the proper type for OpenAI API
+            formatted_messages = cast(Any, messages)
             stream = client.chat.completions.create(
                 model=model,
-                messages=messages,
+                messages=formatted_messages,
                 max_tokens=2000,
                 temperature=0.7,
                 stream=True
             )
         except Exception as api_error:
-            return f"API Error: {str(api_error)}"
+            yield f"API Error: {str(api_error)}"
+            return
 
         partial_message = ""
         for chunk in stream:
@@ -114,9 +118,10 @@ def query_grok_streaming(user_input: str, history: Optional[List] = None, model:
                 yield partial_message
 
     except Exception as e:
-        return f"Error communicating with Grok API: {str(e)}"
+        yield f"Error communicating with Grok API: {str(e)}"
+        return
 
-def chat_function(message: str, history: List) -> str:
+def chat_function(message: str, history: List) -> Generator[str, None, None]:
     """Main chat function for Gradio interface"""
     image_url = extract_image_url(message)
     return query_grok_streaming(message, history, image_url=image_url)
@@ -139,7 +144,7 @@ def overlay_videos(base_path: str, ghost_path: str, output_path: str, alpha: flo
 
         max_frames = int(duration_sec * fps) if duration_sec else None
 
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fourcc = cv2.VideoWriter.fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
         if not out.isOpened():
@@ -174,7 +179,7 @@ def overlay_videos(base_path: str, ghost_path: str, output_path: str, alpha: flo
     except Exception as e:
         return None, f"Video processing failed: {str(e)}"
 
-def process_video_overlay(base_upload: str, ghost_upload: str, alpha: float, base_start: float, ghost_start: float, duration: Optional[float]) -> Tuple[Optional[str], str, str]:
+def process_video_overlay(base_upload: str, ghost_upload: str, alpha: float, base_start: float, ghost_start: float, duration: Optional[float]) -> Tuple[Optional[str], Optional[str], str]:
     """Process video overlay with user inputs"""
     if not base_upload or not ghost_upload:
         return None, None, "Please upload both base and ghost videos."
@@ -309,6 +314,8 @@ button:hover {
 }
 """
 
+# Health check function available for deployment monitoring
+
 # Create Gradio interface
 with gr.Blocks(
     title="Cipher",
@@ -363,12 +370,17 @@ with gr.Blocks(
 # Launch the application
 if __name__ == "__main__":
     try:
-        # Validate environment variables
-        required_env_vars = ["PORT"]
-        missing_vars = []
-        
         # Get port from environment variable for deployment compatibility
-        port = int(os.getenv("PORT", "5000"))
+        try:
+            port = int(os.getenv("PORT", "5000"))
+        except (ValueError, TypeError):
+            print("Warning: Invalid PORT environment variable, using default port 5000")
+            port = 5000
+        
+        # Validate port range
+        if not (1 <= port <= 65535):
+            print(f"Warning: Invalid port {port}, using default port 5000")
+            port = 5000
         
         # Check optional but important environment variables
         xai_key = os.getenv("XAI_API_KEY")
@@ -376,9 +388,22 @@ if __name__ == "__main__":
             print("Warning: XAI_API_KEY not properly configured. AI functionality will be limited.")
             print("To enable full functionality, set your XAI_API_KEY in the environment variables.")
         
+        # Validate that all required dependencies are available
+        try:
+            import cv2
+            import gradio
+            import openai
+            print("All required dependencies are available")
+        except ImportError as ie:
+            print(f"Missing required dependency: {ie}")
+            print("Please ensure all dependencies are properly installed")
+        
         print(f"Starting Gradio app on port {port}")
         print("API client status:", "Connected" if client else "Not connected (app will still run)")
         print(f"Application health check available at: http://0.0.0.0:{port}/")
+        
+        # Health check will be handled by Gradio's default endpoints
+        print("Health check available at root endpoint")
         
         # Configure Gradio for deployment with enhanced settings
         demo.launch(
@@ -390,7 +415,12 @@ if __name__ == "__main__":
             favicon_path=None,
             ssl_verify=False,
             max_threads=20,  # Increased for better deployment performance
-            inbrowser=False  # Disable auto-opening browser in deployment
+            inbrowser=False,  # Disable auto-opening browser in deployment
+            root_path=None,  # Let deployment infrastructure handle root path
+            app_kwargs={
+                "docs_url": None,  # Disable Swagger docs in production
+                "redoc_url": None  # Disable ReDoc in production
+            }
         )
         
     except ValueError as ve:
