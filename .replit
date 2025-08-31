@@ -1,4 +1,7 @@
+# Project Configuration
+
 modules = ["python-3.11"]
+
 [agent]
 expertMode = true
 
