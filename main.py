@@ -578,15 +578,16 @@ if __name__ == "__main__":
     # Initialize database
     init_db()
     
-    # Since Gradio serves the root path, we'll rely on the fact that
-    # it returns a 200 status code for the deployment health check
-    # The Gradio interface at / will serve as the health check endpoint
-    
+    # Launch Gradio with proper settings for deployment health checks
+    # Gradio automatically serves at / and should respond with 200 for health checks
     demo.launch(
         server_name="0.0.0.0",
         server_port=5000,
         share=False,
         show_error=True,
         quiet=False,
-        show_api=False
+        show_api=False,
+        # Enable CORS and proper headers for deployment
+        allowed_paths=["/"],
+        root_path=None
     )
