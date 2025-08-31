@@ -8,6 +8,7 @@ import gradio as gr
 import bcrypt
 import psycopg2
 from openai import OpenAI
+from typing import List, Dict, Union, Any
 
 # Configuration - Load API key from environment variables
 XAI_API_KEY = os.getenv("XAI_API_KEY")
@@ -121,35 +122,59 @@ def query_grok_streaming(user_input, history=[], model=DEFAULT_MODEL, image_url=
         
         # Handle vision input if image URL provided
         if image_url:
-            content = [
-                {"type": "text", "text": user_input},
-                {
-                    "type": "image_url", 
-                    "image_url": {
-                        "url": image_url,
-                        "detail": "high"
+            # For vision models, use proper message format
+            user_message = {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_input},
+                    {
+                        "type": "image_url", 
+                        "image_url": {
+                            "url": image_url,
+                            "detail": "high"
+                        }
                     }
-                }
-            ]
-            messages.append({"role": "user", "content": content})
+                ]
+            }
+            messages.append(user_message)
             model = VISION_MODEL  # Switch to vision model
         else:
             messages.append({"role": "user", "content": user_input})
         
         # Make streaming API call
-        stream = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=2000,
-            temperature=0.7,
+        response = requests.post(
+            "https://api.x.ai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {XAI_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": model,
+                "messages": messages,
+                "max_tokens": 2000,
+                "temperature": 0.7,
+                "stream": True
+            },
             stream=True
         )
         
         partial_message = ""
-        for chunk in stream:
-            if chunk.choices[0].delta.content is not None:
-                partial_message += chunk.choices[0].delta.content
-                yield partial_message
+        for line in response.iter_lines():
+            if line:
+                line = line.decode('utf-8')
+                if line.startswith('data: '):
+                    data = line[6:]
+                    if data == '[DONE]':
+                        break
+                    try:
+                        chunk_data = json.loads(data)
+                        if 'choices' in chunk_data and len(chunk_data['choices']) > 0:
+                            delta = chunk_data['choices'][0].get('delta', {})
+                            if 'content' in delta and delta['content'] is not None:
+                                partial_message += delta['content']
+                                yield partial_message
+                    except json.JSONDecodeError:
+                        continue
                 
     except Exception as e:
         yield f"Error communicating with Grok API: {str(e)}"
@@ -191,12 +216,12 @@ def overlay_videos(base_path, ghost_path, output_path, alpha=0.5, base_start_sec
         max_frames = int(duration_sec * fps) if duration_sec else None
         
         # Setup video writer with H.264 codec
-        fourcc = cv2.VideoWriter_fourcc(*'H264')
+        fourcc = cv2.VideoWriter.fourcc(*'H264')
         try:
             out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         except:
             # Fallback to mp4v if H.264 not available
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            fourcc = cv2.VideoWriter.fourcc(*'mp4v')
             out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         
         frame_count = 0
@@ -573,6 +598,12 @@ with gr.Blocks(
         fn=handle_logout,
         outputs=[login_modal, login_toggle_btn, logout_btn, auth_status]
     )
+
+# Add health check route to Gradio's FastAPI app  
+@demo.app.get("/health")
+def health_check():
+    """Health check endpoint for deployment"""
+    return {"status": "healthy", "service": "Cipher Chat Agent"}
 
 # Launch the application
 if __name__ == "__main__":
