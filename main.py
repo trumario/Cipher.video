@@ -13,11 +13,26 @@ XAI_API_KEY = os.getenv("XAI_API_KEY", "your_xai_api_key_here")
 DEFAULT_MODEL = "grok-2-1212"  # Text/coding default
 VISION_MODEL = "grok-4-0709"  # Vision-capable model for video and image analysis
 
-# Create xAI client using OpenAI pattern
-client = OpenAI(
-    base_url="https://api.x.ai/v1",
-    api_key=XAI_API_KEY
-)
+# Validate API key and create client with error handling
+def create_xai_client():
+    """Create xAI client with proper error handling"""
+    api_key = os.getenv("XAI_API_KEY")
+    if not api_key or api_key == "your_xai_api_key_here":
+        print("Warning: XAI_API_KEY not found or using placeholder value")
+        return None
+    
+    try:
+        client = OpenAI(
+            base_url="https://api.x.ai/v1",
+            api_key=api_key
+        )
+        return client
+    except Exception as e:
+        print(f"Error creating xAI client: {e}")
+        return None
+
+# Create xAI client
+client = create_xai_client()
 
 def extract_image_url(message):
     """Extract image URLs from user message using regex"""
@@ -28,6 +43,11 @@ def query_grok_streaming(user_input: str, history: Optional[List] = None, model:
     """Query Grok API with streaming response support"""
     if history is None:
         history = []
+    
+    # Check if client is available
+    if client is None:
+        yield "Error: API client not available. Please check your XAI_API_KEY configuration."
+        return
     
     try:
         # Build message history
@@ -368,10 +388,18 @@ with gr.Blocks(
 if __name__ == "__main__":
     # Get port from environment variable for deployment compatibility
     port = int(os.getenv("PORT", "5000"))
+    
+    print(f"Starting Gradio app on port {port}")
+    print("API client status:", "Connected" if client else "Not connected")
+    
+    # Configure Gradio for deployment
     demo.launch(
         server_name="0.0.0.0",
         server_port=port,
         share=False,
         show_error=True,
-        quiet=False
+        quiet=False,
+        favicon_path=None,
+        ssl_verify=False,
+        max_threads=10
     )
