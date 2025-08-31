@@ -10,34 +10,35 @@ from typing import List, Dict, Any, Union, Optional
 from functools import wraps
 import time
 
-# Configuration - Load API key from environment variables
-XAI_API_KEY = os.getenv("XAI_API_KEY", "your_xai_api_key_here")
-DEFAULT_MODEL = "grok-2-1212"  # Text/coding default
-VISION_MODEL = "grok-4-0709"  # Vision-capable model for video and image analysis
+# Constants
+XAI_API_BASE_URL = "https://api.x.ai/v1"
+DEFAULT_MODEL = "grok-code-fast-1"
+VISION_MODEL = "grok-4-0709"
+API_KEY_PLACEHOLDER = "your_xai_api_key_here"
 
-# Health check endpoint for deployment
-def health_check():
+# Configuration - Load API key from environment variables
+XAI_API_KEY = os.getenv("XAI_API_KEY", API_KEY_PLACEHOLDER)
+
+def health_check() -> Dict[str, Union[str, float]]:
     """Simple health check endpoint for deployment"""
     return {"status": "healthy", "timestamp": time.time(), "service": "grok-chat-agent"}
 
-# Validate API key and create client with error handling
-def create_xai_client():
+def create_xai_client() -> Optional[OpenAI]:
     """Create xAI client with proper error handling"""
     api_key = os.getenv("XAI_API_KEY")
-    if not api_key or api_key == "your_xai_api_key_here":
+    if not api_key or api_key == API_KEY_PLACEHOLDER:
         print("Warning: XAI_API_KEY not found or using placeholder value")
         print("App will continue to run but AI functionality will be limited")
         return None
-    
+
     try:
         client = OpenAI(
-            base_url="https://api.x.ai/v1",
+            base_url=XAI_API_BASE_URL,
             api_key=api_key
         )
-        # Test the client with a simple call to validate the key
         try:
             # This is a minimal test that won't count against usage
-            test_response = client.models.list()
+            client.models.list()
             print("API key validation successful")
         except Exception as test_error:
             print(f"API key validation failed: {test_error}")
@@ -51,38 +52,32 @@ def create_xai_client():
 # Create xAI client
 client = create_xai_client()
 
-def extract_image_url(message):
+def extract_image_url(message: str) -> Optional[str]:
     """Extract image URLs from user message using regex"""
     urls = re.findall(r'(https?://\S+\.(?:jpg|jpeg|png|gif|webp))', message, re.IGNORECASE)
     return urls[0] if urls else None
 
-def query_grok_streaming(user_input: str, history: Optional[List] = None, model: str = DEFAULT_MODEL, image_url: Optional[str] = None):
+def query_grok_streaming(user_input: str, history: Optional[List] = None, model: str = DEFAULT_MODEL, image_url: Optional[str] = None) -> str:
     """Query Grok API with streaming response support"""
     if history is None:
         history = []
-    
-    # Check if client is available
+
     if client is None:
-        yield "Error: API client not available. Please set your XAI_API_KEY in the environment variables to enable AI functionality. The application is running but AI features are disabled."
-        return
-    
+        return "Error: API client not available. Please set your XAI_API_KEY in the environment variables to enable AI functionality. The application is running but AI features are disabled."
+
     try:
-        # Build message history
         messages = [
             {
                 "role": "system", 
                 "content": "You are an expert developer proficient in multiple programming languages, with extensive experience in secure coding practices, performance optimization, and code refactoring across various paradigms (e.g., procedural, object-oriented, functional). Your goal is to review and refactor the provided code to ensure it meets the highest standards of quality, security, and efficiency, tailored to the specified or inferred language.\n\nStep-by-Step Instructions:\n1. Understand the Codebase Context: Analyze the provided code in the context of the broader codebase. Identify opportunities to leverage existing base layer components, functions, or modules instead of reinventing functionality.\n2. Security Audit: Conduct a thorough security review. Check for vulnerabilities such as injection risks, improper input validation, authentication/authorization flaws, sensitive data exposure, and resource management issues.\n3. Remove Redundancy: Identify and eliminate redundant code, including duplicated logic, unused variables, or unnecessary computations.\n4. Eliminate TODOs and Placeholders: Remove all TODO comments, FIXMEs, or incomplete sections.\n5. Replace Magic Numbers and Hardcoded Values: Replace them with named constants or enums.\n6. Optimize Performance: Replace slow algorithms with optimized alternatives. Use efficient data structures and apply language-specific optimization techniques.\n\nProvide the fully refactored code in a single, complete block, followed by a concise summary of changes made. Do not introduce new features; only refine the existing code."
             }
         ]
-        
-        # Add conversation history
+
         for human, ai in history:
             messages.append({"role": "user", "content": human})
             messages.append({"role": "assistant", "content": ai})
-        
-        # Handle vision input if image URL provided
+
         if image_url:
-            # For vision models, we need to structure the content differently
             user_message = {
                 "role": "user",
                 "content": [
@@ -97,122 +92,104 @@ def query_grok_streaming(user_input: str, history: Optional[List] = None, model:
                 ]
             }
             messages.append(user_message)
-            model = VISION_MODEL  # Switch to vision model
+            model = VISION_MODEL
         else:
             messages.append({"role": "user", "content": user_input})
-        
-        # Make streaming API call with proper type handling
+
         try:
             stream = client.chat.completions.create(
                 model=model,
-                messages=messages,  # type: ignore
+                messages=messages,
                 max_tokens=2000,
                 temperature=0.7,
                 stream=True
             )
         except Exception as api_error:
-            yield f"API Error: {str(api_error)}"
-            return
-        
+            return f"API Error: {str(api_error)}"
+
         partial_message = ""
         for chunk in stream:
             if chunk.choices[0].delta.content is not None:
                 partial_message += chunk.choices[0].delta.content
                 yield partial_message
-                
-    except Exception as e:
-        yield f"Error communicating with Grok API: {str(e)}"
 
-def chat_function(message, history):
+    except Exception as e:
+        return f"Error communicating with Grok API: {str(e)}"
+
+def chat_function(message: str, history: List) -> str:
     """Main chat function for Gradio interface"""
     image_url = extract_image_url(message)
-    for partial_response in query_grok_streaming(message, history, image_url=image_url):
-        yield partial_response
+    return query_grok_streaming(message, history, image_url=image_url)
 
-def overlay_videos(base_path, ghost_path, output_path, alpha=0.5, base_start_sec=0.0, ghost_start_sec=0.0, duration_sec=None):
+def overlay_videos(base_path: str, ghost_path: str, output_path: str, alpha: float = 0.5, base_start_sec: float = 0.0, ghost_start_sec: float = 0.0, duration_sec: Optional[float] = None) -> Tuple[Optional[str], str]:
     """Overlay two videos with customizable parameters"""
     try:
-        # Open video captures
         cap_base = cv2.VideoCapture(base_path)
         cap_ghost = cv2.VideoCapture(ghost_path)
-        
+
         if not cap_base.isOpened() or not cap_ghost.isOpened():
             return None, "Error: Could not open one or both video files."
-        
-        # Set start positions
+
         cap_base.set(cv2.CAP_PROP_POS_MSEC, base_start_sec * 1000)
         cap_ghost.set(cv2.CAP_PROP_POS_MSEC, ghost_start_sec * 1000)
-        
-        # Get video properties from base video
+
         fps = cap_base.get(cv2.CAP_PROP_FPS)
         width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        
-        # Calculate maximum frames if duration specified
+
         max_frames = int(duration_sec * fps) if duration_sec else None
-        
-        # Setup video writer with compatible codec
-        fourcc = cv2.VideoWriter.fourcc(*'mp4v')  # Use mp4v for better compatibility
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        
+
         if not out.isOpened():
             return None, "Error: Could not initialize video writer."
-        
-        frame_count = 0
+
         processed_frames = 0
-        
-        # Process frames
+
         while cap_base.isOpened() and cap_ghost.isOpened():
             if max_frames is not None and processed_frames >= max_frames:
                 break
-            
+
             ret_base, frame_base = cap_base.read()
             ret_ghost, frame_ghost = cap_ghost.read()
-            
+
             if not ret_base or not ret_ghost:
                 break
-            
-            # Resize ghost frame to match base frame if needed
+
             if frame_ghost.shape != frame_base.shape:
                 frame_ghost = cv2.resize(frame_ghost, (width, height))
-            
-            # Blend frames using alpha blending
+
             blended = cv2.addWeighted(frame_base, 1.0 - alpha, frame_ghost, alpha, 0)
-            
+
             out.write(blended)
             processed_frames += 1
-            frame_count += 1
-        
-        # Release resources
+
         cap_base.release()
         cap_ghost.release()
         out.release()
-        
+
         return output_path, f"Successfully processed {processed_frames} frames. Video saved to: {output_path}"
-            
+
     except Exception as e:
         return None, f"Video processing failed: {str(e)}"
 
-def process_video_overlay(base_upload, ghost_upload, alpha, base_start, ghost_start, duration):
+def process_video_overlay(base_upload: str, ghost_upload: str, alpha: float, base_start: float, ghost_start: float, duration: Optional[float]) -> Tuple[Optional[str], str, str]:
     """Process video overlay with user inputs"""
     if not base_upload or not ghost_upload:
         return None, None, "Please upload both base and ghost videos."
-    
-    if alpha < 0.1 or alpha > 1.0:
+
+    if not 0.1 <= alpha <= 1.0:
         return None, None, "Alpha value must be between 0.1 and 1.0"
-    
-    # Create unique output filename with timestamp
-    import time
+
     timestamp = int(time.time())
     output_path = f"overlay_output_{timestamp}.mp4"
-    
-    # Ensure start times are non-negative
+
     base_start = max(0.0, base_start)
     ghost_start = max(0.0, ghost_start)
-    
-    # Process duration (None means process entire video)
+
     duration = duration if duration and duration > 0 else None
-    
+
     result_path, status_msg = overlay_videos(
         base_upload, 
         ghost_upload, 
@@ -222,10 +199,10 @@ def process_video_overlay(base_upload, ghost_upload, alpha, base_start, ghost_st
         ghost_start, 
         duration
     )
-    
+
     return result_path, output_path, status_msg
 
-
+# Custom CSS for
 # Custom CSS for stealthy dark/light themes (dark default)
 CUSTOM_CSS = """
 :root {
