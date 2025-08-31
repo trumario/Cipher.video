@@ -622,6 +622,11 @@ with gr.Blocks(
 from fastapi.responses import JSONResponse
 
 # Add health routes after Gradio interface is fully configured
+# Root endpoint for deployment health checks
+demo.app.add_api_route("/", 
+    endpoint=lambda: JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"}),
+    methods=["GET"])
+
 demo.app.add_api_route("/health", 
     endpoint=lambda: JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"}),
     methods=["GET"])
@@ -632,11 +637,14 @@ demo.app.add_api_route("/api/health",
 
 # Launch the application
 if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", 5000))
     demo.launch(
         server_name="0.0.0.0",
-        server_port=5000,
+        server_port=port,
         share=False,
         show_error=True,
         quiet=False,
-        show_api=False
+        show_api=False,
+        prevent_thread_lock=False
     )
