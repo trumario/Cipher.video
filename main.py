@@ -5,99 +5,18 @@ import cv2
 import subprocess
 import requests
 import gradio as gr
-import bcrypt
-import psycopg2
 from openai import OpenAI
-from typing import List, Dict, Union, Any
 
 # Configuration - Load API key from environment variables
-XAI_API_KEY = os.getenv("XAI_API_KEY")
+XAI_API_KEY = os.getenv("XAI_API_KEY", "your_xai_api_key_here")
 DEFAULT_MODEL = "grok-2-1212"  # Text/coding default
 VISION_MODEL = "grok-4-0709"  # Vision-capable model for video and image analysis
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-if not XAI_API_KEY:
-    raise ValueError("XAI_API_KEY not set in environment variables.")
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL not set in environment variables.")
 
 # Create xAI client using OpenAI pattern
 client = OpenAI(
     base_url="https://api.x.ai/v1",
     api_key=XAI_API_KEY
 )
-
-# Database setup
-def init_db():
-    """Initialize database with users table"""
-    conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            username VARCHAR(50) UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    cur.close()
-    conn.close()
-
-def hash_password(password):
-    """Hash password using bcrypt"""
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-
-def verify_password(password, hashed):
-    """Verify password against hash"""
-    return bcrypt.checkpw(password.encode('utf-8'), hashed)
-
-def register_user(username, password):
-    """Register a new user"""
-    if not username or not password:
-        return False, "Username and password required"
-    
-    try:
-        conn = psycopg2.connect(DATABASE_URL)
-        cur = conn.cursor()
-        
-        # Check if user exists
-        cur.execute("SELECT username FROM users WHERE username = %s", (username,))
-        if cur.fetchone():
-            return False, "Username already exists"
-        
-        # Create user
-        password_hash = hash_password(password)
-        cur.execute("INSERT INTO users (username, password_hash) VALUES (%s, %s)", 
-                   (username, password_hash))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return True, "Registration successful"
-    except Exception as e:
-        return False, f"Registration failed: {str(e)}"
-
-def authenticate_user(username, password):
-    """Authenticate user credentials"""
-    if not username or not password:
-        return False, "Username and password required"
-    
-    try:
-        conn = psycopg2.connect(DATABASE_URL)
-        cur = conn.cursor()
-        cur.execute("SELECT password_hash FROM users WHERE username = %s", (username,))
-        result = cur.fetchone()
-        cur.close()
-        conn.close()
-        
-        if result and verify_password(password, result[0]):
-            return True, "Login successful"
-        return False, "Invalid credentials"
-    except Exception as e:
-        return False, f"Authentication failed: {str(e)}"
-
-# Initialize database
-init_db()
 
 def extract_image_url(message):
     """Extract image URLs from user message using regex"""
@@ -122,93 +41,43 @@ def query_grok_streaming(user_input, history=[], model=DEFAULT_MODEL, image_url=
         
         # Handle vision input if image URL provided
         if image_url:
-            # For vision models, use proper message format
-            user_message = {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": user_input},
-                    {
-                        "type": "image_url", 
-                        "image_url": {
-                            "url": image_url,
-                            "detail": "high"
-                        }
+            content = [
+                {"type": "text", "text": user_input},
+                {
+                    "type": "image_url", 
+                    "image_url": {
+                        "url": image_url,
+                        "detail": "high"
                     }
-                ]
-            }
-            messages.append(user_message)
+                }
+            ]
+            messages.append({"role": "user", "content": content})
             model = VISION_MODEL  # Switch to vision model
         else:
             messages.append({"role": "user", "content": user_input})
         
         # Make streaming API call
-        response = requests.post(
-            "https://api.x.ai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {XAI_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": model,
-                "messages": messages,
-                "max_tokens": 2000,
-                "temperature": 0.7,
-                "stream": True
-            },
+        stream = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=2000,
+            temperature=0.7,
             stream=True
         )
         
         partial_message = ""
-        for line in response.iter_lines():
-            if line:
-                line = line.decode('utf-8')
-                if line.startswith('data: '):
-                    data = line[6:]
-                    if data == '[DONE]':
-                        break
-                    try:
-                        chunk_data = json.loads(data)
-                        if 'choices' in chunk_data and len(chunk_data['choices']) > 0:
-                            delta = chunk_data['choices'][0].get('delta', {})
-                            if 'content' in delta and delta['content'] is not None:
-                                partial_message += delta['content']
-                                yield partial_message
-                    except json.JSONDecodeError:
-                        continue
+        for chunk in stream:
+            if chunk.choices[0].delta.content is not None:
+                partial_message += chunk.choices[0].delta.content
+                yield partial_message
                 
     except Exception as e:
         yield f"Error communicating with Grok API: {str(e)}"
 
-# Global authentication state (simple approach for demo)
-auth_state = {"authenticated": False, "username": None}
-
 def chat_function(message, history):
     """Main chat function for Gradio interface"""
-    # Check if user is authenticated
-    if not auth_state.get('authenticated'):
-        yield "Please log in to use the chat feature."
-        return
-    
-    # Convert messages format to tuples format for compatibility
-    history_tuples = []
-    if isinstance(history, list) and len(history) > 0:
-        if isinstance(history[0], dict):
-            # Messages format - convert to tuples
-            i = 0
-            while i < len(history) - 1:
-                if (history[i].get('role') == 'user' and 
-                    i + 1 < len(history) and 
-                    history[i + 1].get('role') == 'assistant'):
-                    history_tuples.append((history[i]['content'], history[i + 1]['content']))
-                    i += 2
-                else:
-                    i += 1
-        else:
-            # Already tuples format
-            history_tuples = history
-    
     image_url = extract_image_url(message)
-    for partial_response in query_grok_streaming(message, history_tuples, image_url=image_url):
+    for partial_response in query_grok_streaming(message, history, image_url=image_url):
         yield partial_response
 
 def overlay_videos(base_path, ghost_path, output_path, alpha=0.5, base_start_sec=0.0, ghost_start_sec=0.0, duration_sec=None):
@@ -234,12 +103,12 @@ def overlay_videos(base_path, ghost_path, output_path, alpha=0.5, base_start_sec
         max_frames = int(duration_sec * fps) if duration_sec else None
         
         # Setup video writer with H.264 codec
-        fourcc = cv2.VideoWriter.fourcc(*'H264')
+        fourcc = cv2.VideoWriter_fourcc(*'H264')
         try:
             out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         except:
             # Fallback to mp4v if H.264 not available
-            fourcc = cv2.VideoWriter.fourcc(*'mp4v')
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         
         frame_count = 0
@@ -304,10 +173,6 @@ def overlay_videos(base_path, ghost_path, output_path, alpha=0.5, base_start_sec
 
 def process_video_overlay(base_upload, ghost_upload, alpha, base_start, ghost_start, duration):
     """Process video overlay with user inputs"""
-    # Check if user is authenticated
-    if not auth_state.get('authenticated'):
-        return None, "Please log in to use the video overlay feature."
-    
     if not base_upload or not ghost_upload:
         return None, "Please upload both base and ghost videos."
     
@@ -332,34 +197,6 @@ def process_video_overlay(base_upload, ghost_upload, alpha, base_start, ghost_st
         ghost_start, 
         duration
     )
-
-def handle_login(username, password):
-    """Handle user login"""
-    success, message = authenticate_user(username, password)
-    if success:
-        auth_state['authenticated'] = True
-        auth_state['username'] = username
-        return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), message
-    return gr.update(visible=True), gr.update(visible=True), gr.update(visible=False), message
-
-def handle_register(username, password):
-    """Handle user registration"""
-    success, message = register_user(username, password)
-    return message
-
-def handle_logout():
-    """Handle user logout"""
-    auth_state['authenticated'] = False
-    auth_state['username'] = None
-    return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), "Logged out successfully"
-
-def toggle_login_modal():
-    """Toggle login modal visibility"""
-    return gr.update(visible=True)
-
-def close_login_modal():
-    """Close login modal"""
-    return gr.update(visible=False)
 
 
 # Custom CSS for stealthy dark/light themes (dark default)
@@ -466,64 +303,6 @@ button:hover {
     min-width: 40px !important;
     border-radius: 6px !important;
 }
-
-/* Hide Gradio branding */
-.footer, .gradio-footer, footer {
-    display: none !important;
-}
-
-.gr-button[title*="Built with Gradio"] {
-    display: none !important;
-}
-
-a[href*="gradio.app"] {
-    display: none !important;
-}
-
-.built-with, .gradio-link {
-    display: none !important;
-}
-
-div[style*="built with gradio"] {
-    display: none !important;
-}
-
-.gradio-container > div:last-child {
-    display: none !important;
-}
-
-/* Login modal styling */
-.login-modal {
-    position: fixed !important;
-    top: 50% !important;
-    left: 50% !important;
-    transform: translate(-50%, -50%) !important;
-    background-color: var(--input-bg) !important;
-    border: 2px solid var(--border-color) !important;
-    border-radius: 8px !important;
-    padding: 20px !important;
-    z-index: 1000 !important;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
-}
-
-.login-overlay {
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    background-color: rgba(0,0,0,0.7) !important;
-    z-index: 999 !important;
-}
-
-.login-button {
-    width: 60px !important;
-    height: 30px !important;
-    padding: 4px 8px !important;
-    font-size: 12px !important;
-    min-width: 60px !important;
-    border-radius: 4px !important;
-}
 """
 
 # Create Gradio interface
@@ -533,38 +312,20 @@ with gr.Blocks(
 ) as demo:
     
     with gr.Row():
-        with gr.Column(scale=7):
+        with gr.Column(scale=9):
             gr.Markdown(
                 """<h1 style="font-family: 'Courier New', monospace; font-weight: bold; color: var(--text-color); text-transform: uppercase; letter-spacing: 3px; margin: 0; text-shadow: 0 0 10px var(--accent-color);">CIPHER</h1>"""
             )
-        with gr.Column(scale=3):
-            with gr.Row():
-                with gr.Column(scale=1):
-                    toggle_btn = gr.Button("◐", size="sm", elem_classes=["theme-toggle"])
-                with gr.Column(scale=1):
-                    login_toggle_btn = gr.Button("Login", size="sm", elem_classes=["login-button"], visible=True)
-                    logout_btn = gr.Button("Logout", size="sm", elem_classes=["login-button"], visible=False)
+        with gr.Column(scale=1, min_width=80):
+            toggle_btn = gr.Button("◐", size="sm", elem_classes=["theme-toggle"])
+            toggle_btn.click(None, js="""() => {
+                document.body.classList.toggle('light');
+                return null;
+            }""")
     
-    toggle_btn.click(None, js="""() => {
-        document.body.classList.toggle('light');
-        return null;
-    }""")
-    
-    # Login modal (hidden by default)
-    with gr.Group(visible=False, elem_classes=["login-modal"]) as login_modal:
-        gr.Markdown("### Login / Register")
-        username_input = gr.Textbox(label="Username", placeholder="Enter username")
-        password_input = gr.Textbox(label="Password", type="password", placeholder="Enter password")
-        with gr.Row():
-            login_btn = gr.Button("Login", variant="primary")
-            register_btn = gr.Button("Register")
-            close_modal_btn = gr.Button("Close", variant="secondary")
-        auth_status = gr.Textbox(label="Status", interactive=False)
-        
     with gr.Tab("Code"):
         chat_interface = gr.ChatInterface(
             chat_function,
-            type="messages",
             textbox=gr.Textbox(
                 placeholder="Enter code or image URL...",
                 container=False
@@ -589,74 +350,13 @@ with gr.Blocks(
             inputs=[base_upload, ghost_upload, alpha_slider, base_start, ghost_start, duration],
             outputs=[output_video, status_output]
         )
-    
-    # Event handlers for authentication
-    login_toggle_btn.click(
-        fn=toggle_login_modal,
-        outputs=login_modal
-    )
-    
-    close_modal_btn.click(
-        fn=close_login_modal,
-        outputs=login_modal
-    )
-    
-    login_btn.click(
-        fn=handle_login,
-        inputs=[username_input, password_input],
-        outputs=[login_modal, login_toggle_btn, logout_btn, auth_status]
-    )
-    
-    register_btn.click(
-        fn=handle_register,
-        inputs=[username_input, password_input],
-        outputs=auth_status
-    )
-    
-    logout_btn.click(
-        fn=handle_logout,
-        outputs=[login_modal, login_toggle_btn, logout_btn, auth_status]
-    )
-
-# Simple health check for deployment
-def check_health():
-    """Simple health check endpoint that returns status"""
-    return {"status": "healthy", "service": "Grok Chat Agent", "database": "connected"}
-
-# Add health check endpoint using Gradio's built-in FastAPI app
-try:
-    from fastapi.responses import JSONResponse, PlainTextResponse
-    
-    @demo.app.get("/")
-    async def root():
-        """Root endpoint for health checks"""
-        return PlainTextResponse("OK", status_code=200)
-    
-    @demo.app.get("/health")
-    async def health():
-        """Health check endpoint"""
-        return JSONResponse(content=check_health(), status_code=200)
-        
-    @demo.app.get("/api/health") 
-    async def api_health():
-        """API health check endpoint"""
-        return JSONResponse(content=check_health(), status_code=200)
-        
-    print("Health check endpoints added successfully")
-except Exception as e:
-    print(f"Warning: Could not add health endpoints: {e}")
 
 # Launch the application
 if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 5000))
-    print(f"Starting Grok Chat Agent Server on port {port}")
     demo.launch(
         server_name="0.0.0.0",
-        server_port=port,
+        server_port=5000,
         share=False,
         show_error=True,
-        quiet=False,
-        show_api=False,
-        prevent_thread_lock=False
+        quiet=False
     )

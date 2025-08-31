@@ -1,10 +1,11 @@
 modules = ["python-3.11"]
 [agent]
 expertMode = true
+integrations = ["python_xai==1.0.0"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["cargo", "ffmpeg-full", "libGL", "libGLU", "libiconv", "rustc"]
+packages = ["ffmpeg-full"]
 
 [workflows]
 runButton = "Project"
@@ -33,6 +34,3 @@ outputType = "webview"
 [[ports]]
 localPort = 5000
 externalPort = 80
-
-[deployment]
-deploymentTarget = "cloudrun"
