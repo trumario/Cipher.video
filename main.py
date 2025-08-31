@@ -623,25 +623,18 @@ if __name__ == "__main__":
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse
     
-    # Create a custom FastAPI route for health check
-    def add_health_route():
-        @demo.app.get("/")
-        def root_health_check():
-            """Root endpoint for deployment health checks"""
-            return JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent", "version": "1.0"})
-        
-        @demo.app.get("/health")
-        def health_check():
-            """Health check endpoint for deployment"""
-            return JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"})
-        
-        @demo.app.get("/api/health")
-        def api_health_check():
-            """Alternative health check endpoint"""
-            return JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"})
+    # Add health check routes using the correct FastAPI app instance
+    app = demo.app
     
-    # Add the routes before launching
-    add_health_route()
+    @app.get("/health")
+    async def health_check():
+        """Health check endpoint for deployment"""
+        return JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"})
+    
+    @app.get("/api/health")
+    async def api_health_check():
+        """Alternative health check endpoint"""
+        return JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"})
     
     demo.launch(
         server_name="0.0.0.0",
