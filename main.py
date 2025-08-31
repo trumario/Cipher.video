@@ -296,8 +296,8 @@ def handle_login(username, password):
     if success:
         auth_state['authenticated'] = True
         auth_state['username'] = username
-        return gr.update(visible=True), gr.update(visible=False), message
-    return gr.update(visible=False), gr.update(visible=True), message
+        return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), message
+    return gr.update(visible=True), gr.update(visible=True), gr.update(visible=False), message
 
 def handle_register(username, password):
     """Handle user registration"""
@@ -308,7 +308,15 @@ def handle_logout():
     """Handle user logout"""
     auth_state['authenticated'] = False
     auth_state['username'] = None
-    return gr.update(visible=False), gr.update(visible=True), "Logged out successfully"
+    return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), "Logged out successfully"
+
+def toggle_login_modal():
+    """Toggle login modal visibility"""
+    return gr.update(visible=True)
+
+def close_login_modal():
+    """Close login modal"""
+    return gr.update(visible=False)
 
 
 # Custom CSS for stealthy dark/light themes (dark default)
@@ -436,6 +444,43 @@ a[href*="gradio.app"] {
 div[style*="built with gradio"] {
     display: none !important;
 }
+
+.gradio-container > div:last-child {
+    display: none !important;
+}
+
+/* Login modal styling */
+.login-modal {
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    background-color: var(--input-bg) !important;
+    border: 2px solid var(--border-color) !important;
+    border-radius: 8px !important;
+    padding: 20px !important;
+    z-index: 1000 !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
+}
+
+.login-overlay {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    background-color: rgba(0,0,0,0.7) !important;
+    z-index: 999 !important;
+}
+
+.login-button {
+    width: 60px !important;
+    height: 30px !important;
+    padding: 4px 8px !important;
+    font-size: 12px !important;
+    min-width: 60px !important;
+    border-radius: 4px !important;
+}
 """
 
 # Create Gradio interface
@@ -445,66 +490,77 @@ with gr.Blocks(
 ) as demo:
     
     with gr.Row():
-        with gr.Column(scale=9):
+        with gr.Column(scale=7):
             gr.Markdown(
                 """<h1 style="font-family: 'Courier New', monospace; font-weight: bold; color: var(--text-color); text-transform: uppercase; letter-spacing: 3px; margin: 0; text-shadow: 0 0 10px var(--accent-color);">CIPHER</h1>"""
             )
-        with gr.Column(scale=1, min_width=80):
-            toggle_btn = gr.Button("◐", size="sm", elem_classes=["theme-toggle"])
-            toggle_btn.click(None, js="""() => {
-                document.body.classList.toggle('light');
-                return null;
-            }""")
+        with gr.Column(scale=3):
+            with gr.Row():
+                with gr.Column(scale=1):
+                    toggle_btn = gr.Button("◐", size="sm", elem_classes=["theme-toggle"])
+                with gr.Column(scale=1):
+                    login_toggle_btn = gr.Button("Login", size="sm", elem_classes=["login-button"], visible=True)
+                    logout_btn = gr.Button("Logout", size="sm", elem_classes=["login-button"], visible=False)
     
-    # Login section
-    with gr.Group(visible=True) as login_section:
-        gr.Markdown("### Access Required")
-        with gr.Row():
-            username_input = gr.Textbox(label="Username", placeholder="Enter username")
-            password_input = gr.Textbox(label="Password", type="password", placeholder="Enter password")
+    toggle_btn.click(None, js="""() => {
+        document.body.classList.toggle('light');
+        return null;
+    }""")
+    
+    # Login modal (hidden by default)
+    with gr.Group(visible=False, elem_classes=["login-modal"]) as login_modal:
+        gr.Markdown("### Login / Register")
+        username_input = gr.Textbox(label="Username", placeholder="Enter username")
+        password_input = gr.Textbox(label="Password", type="password", placeholder="Enter password")
         with gr.Row():
             login_btn = gr.Button("Login", variant="primary")
             register_btn = gr.Button("Register")
+            close_modal_btn = gr.Button("Close", variant="secondary")
         auth_status = gr.Textbox(label="Status", interactive=False)
-    
-    # Main application tabs (hidden until authenticated)
-    with gr.Group(visible=False) as main_tabs:
-        with gr.Row():
-            logout_btn = gr.Button("Logout", size="sm")
         
-        with gr.Tab("Code"):
-            chat_interface = gr.ChatInterface(
-                chat_function,
-                textbox=gr.Textbox(
-                    placeholder="Enter code or image URL...",
-                    container=False
-                )
+    with gr.Tab("Code"):
+        chat_interface = gr.ChatInterface(
+            chat_function,
+            textbox=gr.Textbox(
+                placeholder="Enter code or image URL...",
+                container=False
             )
+        )
     
-        with gr.Tab("Video"):
-            with gr.Row():
-                base_upload = gr.Video(label="Base")
-                ghost_upload = gr.Video(label="Ghost")
-            with gr.Row():
-                alpha_slider = gr.Slider(0.1, 1.0, value=0.5, label="Opacity")
-                base_start = gr.Number(value=0.0, label="Base Start")
-                ghost_start = gr.Number(value=0.0, label="Ghost Start")
-                duration = gr.Number(value=None, label="Duration")
-            process_btn = gr.Button("Process")
-            output_video = gr.Video(label="Output")
-            status_output = gr.Textbox(label="Status", interactive=False)
-            
-            process_btn.click(
-                fn=process_video_overlay,
-                inputs=[base_upload, ghost_upload, alpha_slider, base_start, ghost_start, duration],
-                outputs=[output_video, status_output]
-            )
+    with gr.Tab("Video"):
+        with gr.Row():
+            base_upload = gr.Video(label="Base")
+            ghost_upload = gr.Video(label="Ghost")
+        with gr.Row():
+            alpha_slider = gr.Slider(0.1, 1.0, value=0.5, label="Opacity")
+            base_start = gr.Number(value=0.0, label="Base Start")
+            ghost_start = gr.Number(value=0.0, label="Ghost Start")
+            duration = gr.Number(value=None, label="Duration")
+        process_btn = gr.Button("Process")
+        output_video = gr.Video(label="Output")
+        status_output = gr.Textbox(label="Status", interactive=False)
+        
+        process_btn.click(
+            fn=process_video_overlay,
+            inputs=[base_upload, ghost_upload, alpha_slider, base_start, ghost_start, duration],
+            outputs=[output_video, status_output]
+        )
     
     # Event handlers for authentication
+    login_toggle_btn.click(
+        fn=toggle_login_modal,
+        outputs=login_modal
+    )
+    
+    close_modal_btn.click(
+        fn=close_login_modal,
+        outputs=login_modal
+    )
+    
     login_btn.click(
         fn=handle_login,
         inputs=[username_input, password_input],
-        outputs=[main_tabs, login_section, auth_status]
+        outputs=[login_modal, login_toggle_btn, logout_btn, auth_status]
     )
     
     register_btn.click(
@@ -515,7 +571,7 @@ with gr.Blocks(
     
     logout_btn.click(
         fn=handle_logout,
-        outputs=[main_tabs, login_section, auth_status]
+        outputs=[login_modal, login_toggle_btn, logout_btn, auth_status]
     )
 
 # Launch the application
