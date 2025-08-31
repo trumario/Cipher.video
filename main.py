@@ -37,7 +37,7 @@ def extract_image_url(message: str) -> Union[str, None]:
     urls = re.findall(r'(https?://\S+\.(?:jpg|jpeg|png|gif|webp))', message, re.IGNORECASE)
     return urls[0] if urls else None
 
-def query_grok_streaming(user_input: str, history: List[Dict[str, str]] = [], model: str = DEFAULT_MODEL, image_url: Union[str, None] = None) -> Generator[str, None, None]:
+def query_grok_streaming(user_input: str, history: List[Dict[str, Any]] = [], model: str = DEFAULT_MODEL, image_url: Union[str, None] = None) -> Generator[str, None, None]:
     """Query Grok API with streaming response support"""
     try:
         # Build message history with proper typing
@@ -46,7 +46,13 @@ def query_grok_streaming(user_input: str, history: List[Dict[str, str]] = [], mo
             "content": "You are an expert developer proficient in multiple programming languages, with extensive experience in secure coding practices, performance optimization, and code refactoring across various paradigms (e.g., procedural, object-oriented, functional). Your goal is to review and refactor the provided code to ensure it meets the highest standards of quality, security, and efficiency, tailored to the specified or inferred language.\n\nStep-by-Step Instructions:\n1. Understand the Codebase Context: Analyze the provided code in the context of the broader codebase. Identify opportunities to leverage existing base layer components, functions, or modules instead of reinventing functionality.\n2. Security Audit: Conduct a thorough security review. Check for vulnerabilities such as injection risks, improper input validation, authentication/authorization flaws, sensitive data exposure, and resource management issues.\n3. Remove Redundancy: Identify and eliminate redundant code, including duplicated logic, unused variables, or unnecessary computations.\n4. Eliminate TODOs and Placeholders: Remove all TODO comments, FIXMEs, or incomplete sections.\n5. Replace Magic Numbers and Hardcoded Values: Replace them with named constants or enums.\n6. Optimize Performance: Replace slow algorithms with optimized alternatives. Use efficient data structures and apply language-specific optimization techniques.\n\nProvide the fully refactored code in a single, complete block, followed by a concise summary of changes made. Do not introduce new features; only refine the existing code."
         }
         
-        messages = [system_message] + history
+        # Convert history to proper message format
+        formatted_history = []
+        for msg in history:
+            if isinstance(msg, dict) and "role" in msg and "content" in msg:
+                formatted_history.append(msg)
+        
+        messages = [system_message] + formatted_history
 
         # Handle vision input if image URL provided
         if image_url:
@@ -71,7 +77,7 @@ def query_grok_streaming(user_input: str, history: List[Dict[str, str]] = [], mo
         # Make streaming API call using OpenAI client
         stream = client.chat.completions.create(
             model=model,
-            messages=messages,
+            messages=messages,  # type: ignore
             max_tokens=MAX_TOKENS,
             temperature=TEMPERATURE,
             stream=True
@@ -86,7 +92,7 @@ def query_grok_streaming(user_input: str, history: List[Dict[str, str]] = [], mo
     except Exception as e:
         yield f"Error communicating with Grok API: {str(e)}"
 
-def chat_function(message: str, history: List[Dict[str, str]]) -> Generator[str, None, None]:
+def chat_function(message: str, history: List[Dict[str, Any]]) -> Generator[str, None, None]:
     """Main chat function for Gradio interface"""
     image_url = extract_image_url(message)
     for partial_response in query_grok_streaming(message, history, image_url=image_url):
@@ -94,6 +100,10 @@ def chat_function(message: str, history: List[Dict[str, str]]) -> Generator[str,
 
 def overlay_videos(base_path: str, ghost_path: str, output_path: str, alpha: float = DEFAULT_ALPHA, base_start_sec: float = MIN_START_SEC, ghost_start_sec: float = MIN_START_SEC, duration_sec: Union[float, None] = None) -> tuple[Union[str, None], str]:
     """Overlay two videos with customizable parameters"""
+    cap_base = None
+    cap_ghost = None
+    out = None
+    
     try:
         # Open video captures
         cap_base = cv2.VideoCapture(base_path)
