@@ -9,6 +9,8 @@ import bcrypt
 import psycopg2
 from openai import OpenAI
 from typing import List, Dict, Union, Any
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 # Configuration - Load API key from environment variables
 XAI_API_KEY = os.getenv("XAI_API_KEY")
@@ -521,6 +523,19 @@ div[style*="built with gradio"] {
 }
 """
 
+# Create FastAPI app for health checks
+app = FastAPI()
+
+@app.get("/")
+async def health_check():
+    """Health check endpoint for deployment"""
+    return JSONResponse(content={"status": "healthy", "service": "cipher-chat-agent"}, status_code=200)
+
+@app.get("/health")
+async def health():
+    """Additional health check endpoint"""
+    return JSONResponse(content={"status": "ok"}, status_code=200)
+
 # Create Gradio interface
 with gr.Blocks(
     title="Cipher",
@@ -573,21 +588,21 @@ with gr.Blocks(
         )
     
 
+# Mount Gradio app to FastAPI
+app = gr.mount_gradio_app(app, demo, path="/chat")
+
 # Launch the application
 if __name__ == "__main__":
+    import uvicorn
+    
     # Initialize database
     init_db()
     
-    # Launch Gradio with proper settings for deployment health checks
-    # Gradio automatically serves at / and should respond with 200 for health checks
-    demo.launch(
-        server_name="0.0.0.0",
-        server_port=5000,
-        share=False,
-        show_error=True,
-        quiet=False,
-        show_api=False,
-        # Enable CORS and proper headers for deployment
-        allowed_paths=["/"],
-        root_path=None
+    # Launch FastAPI server with Gradio mounted
+    # This provides health check endpoints and Gradio interface
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=5000,
+        log_level="info"
     )
