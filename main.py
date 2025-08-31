@@ -189,8 +189,26 @@ def chat_function(message, history):
         yield "Please log in to use the chat feature."
         return
     
+    # Convert messages format to tuples format for compatibility
+    history_tuples = []
+    if isinstance(history, list) and len(history) > 0:
+        if isinstance(history[0], dict):
+            # Messages format - convert to tuples
+            i = 0
+            while i < len(history) - 1:
+                if (history[i].get('role') == 'user' and 
+                    i + 1 < len(history) and 
+                    history[i + 1].get('role') == 'assistant'):
+                    history_tuples.append((history[i]['content'], history[i + 1]['content']))
+                    i += 2
+                else:
+                    i += 1
+        else:
+            # Already tuples format
+            history_tuples = history
+    
     image_url = extract_image_url(message)
-    for partial_response in query_grok_streaming(message, history, image_url=image_url):
+    for partial_response in query_grok_streaming(message, history_tuples, image_url=image_url):
         yield partial_response
 
 def overlay_videos(base_path, ghost_path, output_path, alpha=0.5, base_start_sec=0.0, ghost_start_sec=0.0, duration_sec=None):
@@ -546,6 +564,7 @@ with gr.Blocks(
     with gr.Tab("Code"):
         chat_interface = gr.ChatInterface(
             chat_function,
+            type="messages",
             textbox=gr.Textbox(
                 placeholder="Enter code or image URL...",
                 container=False
@@ -599,14 +618,26 @@ with gr.Blocks(
         outputs=[login_modal, login_toggle_btn, logout_btn, auth_status]
     )
 
-# Add health check route to Gradio's FastAPI app  
-@demo.app.get("/health")
-def health_check():
-    """Health check endpoint for deployment"""
-    return {"status": "healthy", "service": "Cipher Chat Agent"}
-
 # Launch the application
 if __name__ == "__main__":
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    
+    # Create a custom FastAPI route for health check
+    def add_health_route():
+        @demo.app.get("/health")
+        def health_check():
+            """Health check endpoint for deployment"""
+            return JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"})
+        
+        @demo.app.get("/api/health")
+        def api_health_check():
+            """Alternative health check endpoint"""
+            return JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"})
+    
+    # Add the routes before launching
+    add_health_route()
+    
     demo.launch(
         server_name="0.0.0.0",
         server_port=5000,
