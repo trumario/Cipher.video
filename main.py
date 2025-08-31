@@ -575,21 +575,12 @@ with gr.Blocks(
 
 # Launch the application
 if __name__ == "__main__":
-    from fastapi import FastAPI
-    from fastapi.responses import JSONResponse
+    # Initialize database
+    init_db()
     
-    # Add health check routes using the correct FastAPI app instance
-    app = demo.app
-    
-    @app.get("/health")
-    async def health_check():
-        """Health check endpoint for deployment"""
-        return JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"})
-    
-    @app.get("/api/health")
-    async def api_health_check():
-        """Alternative health check endpoint"""
-        return JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"})
+    # Since Gradio serves the root path, we'll rely on the fact that
+    # it returns a 200 status code for the deployment health check
+    # The Gradio interface at / will serve as the health check endpoint
     
     demo.launch(
         server_name="0.0.0.0",
