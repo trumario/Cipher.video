@@ -618,22 +618,24 @@ with gr.Blocks(
         outputs=[login_modal, login_toggle_btn, logout_btn, auth_status]
     )
 
-# Add health check routes to the Gradio app
-from fastapi.responses import JSONResponse
+# Simple health check for deployment
+def check_health():
+    """Simple health check endpoint that returns status"""
+    return {"status": "healthy", "service": "Grok Chat Agent", "database": "connected"}
 
-# Add health routes after Gradio interface is fully configured
-# Root endpoint for deployment health checks
-demo.app.add_api_route("/", 
-    endpoint=lambda: JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"}),
-    methods=["GET"])
-
-demo.app.add_api_route("/health", 
-    endpoint=lambda: JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"}),
-    methods=["GET"])
+# Add basic health endpoint after demo is created
+try:
+    from fastapi.responses import JSONResponse
     
-demo.app.add_api_route("/api/health", 
-    endpoint=lambda: JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"}),
-    methods=["GET"])
+    @demo.app.get("/health")
+    def health():
+        return JSONResponse(content=check_health())
+        
+    @demo.app.get("/api/health") 
+    def api_health():
+        return JSONResponse(content=check_health())
+except Exception as e:
+    print(f"Warning: Could not add health endpoints: {e}")
 
 # Launch the application
 if __name__ == "__main__":
