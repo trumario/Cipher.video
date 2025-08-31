@@ -5,7 +5,7 @@ import cv2
 import subprocess
 import gradio as gr
 from openai import OpenAI
-from typing import List, Dict, Union, Any
+from typing import List, Dict, Union, Any, Generator, Iterator
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
@@ -37,16 +37,16 @@ def extract_image_url(message: str) -> Union[str, None]:
     urls = re.findall(r'(https?://\S+\.(?:jpg|jpeg|png|gif|webp))', message, re.IGNORECASE)
     return urls[0] if urls else None
 
-def query_grok_streaming(user_input: str, history: List[Dict[str, str]] = [], model: str = DEFAULT_MODEL, image_url: Union[str, None] = None) -> str:
+def query_grok_streaming(user_input: str, history: List[Dict[str, str]] = [], model: str = DEFAULT_MODEL, image_url: Union[str, None] = None) -> Generator[str, None, None]:
     """Query Grok API with streaming response support"""
     try:
-        # Build message history
-        messages = [
-            {
-                "role": "system", 
-                "content": "You are an expert developer proficient in multiple programming languages, with extensive experience in secure coding practices, performance optimization, and code refactoring across various paradigms (e.g., procedural, object-oriented, functional). Your goal is to review and refactor the provided code to ensure it meets the highest standards of quality, security, and efficiency, tailored to the specified or inferred language.\n\nStep-by-Step Instructions:\n1. Understand the Codebase Context: Analyze the provided code in the context of the broader codebase. Identify opportunities to leverage existing base layer components, functions, or modules instead of reinventing functionality.\n2. Security Audit: Conduct a thorough security review. Check for vulnerabilities such as injection risks, improper input validation, authentication/authorization flaws, sensitive data exposure, and resource management issues.\n3. Remove Redundancy: Identify and eliminate redundant code, including duplicated logic, unused variables, or unnecessary computations.\n4. Eliminate TODOs and Placeholders: Remove all TODO comments, FIXMEs, or incomplete sections.\n5. Replace Magic Numbers and Hardcoded Values: Replace them with named constants or enums.\n6. Optimize Performance: Replace slow algorithms with optimized alternatives. Use efficient data structures and apply language-specific optimization techniques.\n\nProvide the fully refactored code in a single, complete block, followed by a concise summary of changes made. Do not introduce new features; only refine the existing code."
-            }
-        ] + history
+        # Build message history with proper typing
+        system_message = {
+            "role": "system", 
+            "content": "You are an expert developer proficient in multiple programming languages, with extensive experience in secure coding practices, performance optimization, and code refactoring across various paradigms (e.g., procedural, object-oriented, functional). Your goal is to review and refactor the provided code to ensure it meets the highest standards of quality, security, and efficiency, tailored to the specified or inferred language.\n\nStep-by-Step Instructions:\n1. Understand the Codebase Context: Analyze the provided code in the context of the broader codebase. Identify opportunities to leverage existing base layer components, functions, or modules instead of reinventing functionality.\n2. Security Audit: Conduct a thorough security review. Check for vulnerabilities such as injection risks, improper input validation, authentication/authorization flaws, sensitive data exposure, and resource management issues.\n3. Remove Redundancy: Identify and eliminate redundant code, including duplicated logic, unused variables, or unnecessary computations.\n4. Eliminate TODOs and Placeholders: Remove all TODO comments, FIXMEs, or incomplete sections.\n5. Replace Magic Numbers and Hardcoded Values: Replace them with named constants or enums.\n6. Optimize Performance: Replace slow algorithms with optimized alternatives. Use efficient data structures and apply language-specific optimization techniques.\n\nProvide the fully refactored code in a single, complete block, followed by a concise summary of changes made. Do not introduce new features; only refine the existing code."
+        }
+        
+        messages = [system_message] + history
 
         # Handle vision input if image URL provided
         if image_url:
@@ -86,7 +86,7 @@ def query_grok_streaming(user_input: str, history: List[Dict[str, str]] = [], mo
     except Exception as e:
         yield f"Error communicating with Grok API: {str(e)}"
 
-def chat_function(message: str, history: List[Dict[str, str]]) -> str:
+def chat_function(message: str, history: List[Dict[str, str]]) -> Generator[str, None, None]:
     """Main chat function for Gradio interface"""
     image_url = extract_image_url(message)
     for partial_response in query_grok_streaming(message, history, image_url=image_url):
@@ -115,11 +115,11 @@ def overlay_videos(base_path: str, ghost_path: str, output_path: str, alpha: flo
         max_frames = int(duration_sec * fps) if duration_sec else None
 
         # Setup video writer with H.264 codec
-        fourcc = cv2.VideoWriter_fourcc(*'H264')
+        fourcc = cv2.VideoWriter.fourcc(*'H264')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         if not out.isOpened():
             # Fallback to mp4v if H.264 not available
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            fourcc = cv2.VideoWriter.fourcc(*'mp4v')
             out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
         processed_frames = 0
@@ -179,12 +179,21 @@ def overlay_videos(base_path: str, ghost_path: str, output_path: str, alpha: flo
     except Exception as e:
         return None, f"Video processing failed: {str(e)}"
     finally:
-        if 'cap_base' in locals() and cap_base.isOpened():
-            cap_base.release()
-        if 'cap_ghost' in locals() and cap_ghost.isOpened():
-            cap_ghost.release()
-        if 'out' in locals() and out.isOpened():
-            out.release()
+        try:
+            if 'cap_base' in locals() and cap_base is not None and cap_base.isOpened():
+                cap_base.release()
+        except:
+            pass
+        try:
+            if 'cap_ghost' in locals() and cap_ghost is not None and cap_ghost.isOpened():
+                cap_ghost.release()
+        except:
+            pass
+        try:
+            if 'out' in locals() and out is not None and out.isOpened():
+                out.release()
+        except:
+            pass
 
 def process_video_overlay(base_upload: Union[str, None], ghost_upload: Union[str, None], alpha: Union[float, None], base_start: Union[float, None], ghost_start: Union[float, None], duration: Union[float, None]) -> tuple[Union[str, None], str]:
     """Process video overlay with user inputs"""
