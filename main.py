@@ -618,24 +618,20 @@ with gr.Blocks(
         outputs=[login_modal, login_toggle_btn, logout_btn, auth_status]
     )
 
+# Add health check routes to the Gradio app
+from fastapi.responses import JSONResponse
+
+# Add health routes after Gradio interface is fully configured
+demo.app.add_api_route("/health", 
+    endpoint=lambda: JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"}),
+    methods=["GET"])
+    
+demo.app.add_api_route("/api/health", 
+    endpoint=lambda: JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"}),
+    methods=["GET"])
+
 # Launch the application
 if __name__ == "__main__":
-    from fastapi import FastAPI
-    from fastapi.responses import JSONResponse
-    
-    # Add health check routes using the correct FastAPI app instance
-    app = demo.app
-    
-    @app.get("/health")
-    async def health_check():
-        """Health check endpoint for deployment"""
-        return JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"})
-    
-    @app.get("/api/health")
-    async def api_health_check():
-        """Alternative health check endpoint"""
-        return JSONResponse(content={"status": "healthy", "service": "Cipher Chat Agent"})
-    
     demo.launch(
         server_name="0.0.0.0",
         server_port=5000,
