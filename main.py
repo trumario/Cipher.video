@@ -238,7 +238,12 @@ CUSTOM_CSS = """
     --accent-color: #007bff;
 }
 
-body, .gradio-container {
+/* Full screen layout */
+html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: 100vh !important;
+    overflow-x: hidden !important;
     background-color: var(--bg-color) !important;
     color: var(--text-color) !important;
     font-family: 'Arial', sans-serif;
@@ -246,67 +251,152 @@ body, .gradio-container {
 }
 
 .gradio-container {
+    background-color: var(--bg-color) !important;
+    color: var(--text-color) !important;
     border: none !important;
-    max-width: 1200px !important;
-    margin: auto !important;
+    max-width: none !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    margin: 0 !important;
+    padding: 10px !important;
+    box-sizing: border-box !important;
 }
 
-input, textarea, .gr-textbox input, .gr-number input {
+/* Remove all white backgrounds and boxes */
+.gr-form, .gr-box, .gr-panel, .gr-block, .gr-padded, .gr-rounded, .gradio-container > div {
+    background-color: var(--bg-color) !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Input fields styling */
+input, textarea, .gr-textbox input, .gr-number input, .gr-textbox textarea {
     background-color: var(--input-bg) !important;
     color: var(--text-color) !important;
     border: 1px solid var(--border-color) !important;
     border-radius: 4px !important;
+    box-shadow: none !important;
 }
 
-button {
+/* Button styling */
+button, .gr-button {
     background-color: var(--button-bg) !important;
     color: var(--text-color) !important;
     border: 1px solid var(--border-color) !important;
     border-radius: 4px !important;
     transition: background-color 0.2s ease;
+    box-shadow: none !important;
 }
 
-button:hover {
+button:hover, .gr-button:hover {
     background-color: var(--button-hover) !important;
 }
 
-.gr-tabitem {
+/* Tab styling */
+.gr-tabitem, .tab-item {
     background-color: var(--bg-color) !important;
     color: var(--text-color) !important;
+    border: none !important;
 }
 
+.tab-nav button, .tabs button {
+    background-color: var(--button-bg) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--border-color) !important;
+    box-shadow: none !important;
+}
+
+.tab-nav button.selected, .tabs button.selected {
+    background-color: var(--accent-color) !important;
+    color: #ffffff !important;
+}
+
+/* Chat interface styling */
+.gr-chatbot, .chatbot {
+    background-color: var(--input-bg) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 8px !important;
+    height: 70vh !important;
+    box-shadow: none !important;
+}
+
+.gr-chatbot .message, .chatbot .message {
+    background-color: var(--input-bg) !important;
+    color: var(--text-color) !important;
+    border: none !important;
+}
+
+/* Video components styling */
+.gr-video, .video-container {
+    background-color: var(--input-bg) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+
+/* Slider styling */
+.gr-slider, .gr-slider input[type="range"] {
+    background-color: var(--input-bg) !important;
+}
+
+.gr-slider .gr-slider-track {
+    background-color: var(--border-color) !important;
+}
+
+/* Markdown styling */
 .gr-markdown, .gr-markdown h1, .gr-markdown h2, .gr-markdown h3 {
+    color: var(--text-color) !important;
+    background-color: transparent !important;
+}
+
+/* Remove any white boxes and backgrounds */
+.white, .bg-white, .bg-gray-50, .bg-gray-100 {
+    background-color: var(--bg-color) !important;
+}
+
+/* Ensure all containers are dark themed */
+div, span, p, label {
     color: var(--text-color) !important;
 }
 
-.gr-chatbot {
-    background-color: var(--input-bg) !important;
-    border: 1px solid var(--border-color) !important;
+/* Mobile responsive design */
+@media (max-width: 768px) {
+    .gradio-container {
+        padding: 5px !important;
+        width: 100vw !important;
+        height: 100vh !important;
+    }
+    
+    .gr-chatbot, .chatbot {
+        height: 60vh !important;
+    }
+    
+    .gr-row {
+        flex-direction: column !important;
+    }
+    
+    .gr-column {
+        width: 100% !important;
+        margin-bottom: 10px !important;
+    }
 }
 
-.gr-video {
-    background-color: var(--input-bg) !important;
-    border: 1px solid var(--border-color) !important;
-}
-
-.gr-slider input[type="range"] {
-    background-color: var(--border-color) !important;
+/* Desktop full screen */
+@media (min-width: 769px) {
+    .gradio-container {
+        width: 100vw !important;
+        height: 100vh !important;
+        max-width: none !important;
+    }
+    
+    .gr-chatbot, .chatbot {
+        height: 75vh !important;
+    }
 }
 
 /* Remove any emoji or decorative elements */
 .emoji, .fun-icon { 
     display: none !important; 
-}
-
-/* Tab styling */
-.tab-nav button {
-    background-color: var(--button-bg) !important;
-    color: var(--text-color) !important;
-    border: 1px solid var(--border-color) !important;
-}
-
-.tab-nav button.selected {
-    background-color: var(--accent-color) !important;
 }
 
 /* Theme toggle button styling */
@@ -317,6 +407,25 @@ button:hover {
     font-size: 16px !important;
     min-width: 40px !important;
     border-radius: 6px !important;
+    background-color: var(--button-bg) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+/* Ensure all text is visible */
+* {
+    color: var(--text-color) !important;
+}
+
+/* Force dark theme on all elements */
+*, *::before, *::after {
+    background-color: var(--bg-color) !important;
+    border-color: var(--border-color) !important;
+}
+
+/* Exceptions for input elements */
+input, textarea, button, .gr-video, .gr-chatbot {
+    background-color: var(--input-bg) !important;
 }
 """
 
@@ -423,6 +532,7 @@ if __name__ == "__main__":
             max_threads=20,  # Increased for better deployment performance
             inbrowser=False,  # Disable auto-opening browser in deployment
             root_path=None,  # Let deployment infrastructure handle root path
+            max_file_size="1gb",  # Allow up to 1GB file uploads
             app_kwargs={
                 "docs_url": None,  # Disable Swagger docs in production
                 "redoc_url": None  # Disable ReDoc in production
