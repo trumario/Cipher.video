@@ -293,6 +293,16 @@ button:hover {
 .tab-nav button.selected {
     background-color: var(--accent-color) !important;
 }
+
+/* Theme toggle button styling */
+.theme-toggle {
+    width: 40px !important;
+    height: 30px !important;
+    padding: 4px !important;
+    font-size: 16px !important;
+    min-width: 40px !important;
+    border-radius: 6px !important;
+}
 """
 
 # Create Gradio interface
@@ -302,11 +312,16 @@ with gr.Blocks(
 ) as demo:
     
     with gr.Row():
-        toggle_btn = gr.Button("Theme", size="sm")
-        toggle_btn.click(None, js="""() => {
-            document.body.classList.toggle('light');
-            return null;
-        }""")
+        with gr.Column(scale=9):
+            gr.Markdown(
+                """<h1 style="font-family: 'Courier New', monospace; font-weight: bold; color: var(--text-color); text-transform: uppercase; letter-spacing: 3px; margin: 0; text-shadow: 0 0 10px var(--accent-color);">CIPHER</h1>"""
+            )
+        with gr.Column(scale=1, min_width=80):
+            toggle_btn = gr.Button("◐", size="sm", elem_classes=["theme-toggle"])
+            toggle_btn.click(None, js="""() => {
+                document.body.classList.toggle('light');
+                return null;
+            }""")
     
     with gr.Tab("Code"):
         chat_interface = gr.ChatInterface(
