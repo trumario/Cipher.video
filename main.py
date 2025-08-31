@@ -304,14 +304,16 @@ def process_video_overlay(base_upload, ghost_upload, alpha, base_start, ghost_st
     if not base_upload or not ghost_upload:
         return None, "Please upload both base and ghost videos."
     
+    # Handle None alpha value and ensure it's within valid range
+    alpha = alpha or 0.5
     if alpha < 0.1 or alpha > 1.0:
         return None, "Alpha value must be between 0.1 and 1.0"
     
     output_path = "output_overlay.mp4"
     
-    # Ensure start times are non-negative
-    base_start = max(0.0, base_start)
-    ghost_start = max(0.0, ghost_start)
+    # Ensure start times are non-negative and handle None values
+    base_start = max(0.0, base_start or 0.0)
+    ghost_start = max(0.0, ghost_start or 0.0)
     
     # Process duration (None means process entire video)
     duration = duration if duration and duration > 0 else None
