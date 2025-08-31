@@ -6,7 +6,7 @@ import subprocess
 import requests
 import gradio as gr
 from openai import OpenAI
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Union, Optional
 
 # Configuration - Load API key from environment variables
 XAI_API_KEY = os.getenv("XAI_API_KEY", "your_xai_api_key_here")
@@ -24,8 +24,11 @@ def extract_image_url(message):
     urls = re.findall(r'(https?://\S+\.(?:jpg|jpeg|png|gif|webp))', message, re.IGNORECASE)
     return urls[0] if urls else None
 
-def query_grok_streaming(user_input, history=[], model=DEFAULT_MODEL, image_url=None):
+def query_grok_streaming(user_input: str, history: Optional[List] = None, model: str = DEFAULT_MODEL, image_url: Optional[str] = None):
     """Query Grok API with streaming response support"""
+    if history is None:
+        history = []
+    
     try:
         # Build message history
         messages = [
@@ -37,34 +40,42 @@ def query_grok_streaming(user_input, history=[], model=DEFAULT_MODEL, image_url=
         
         # Add conversation history
         for human, ai in history:
-            messages.append({"role": "user", "content": str(human)})
-            messages.append({"role": "assistant", "content": str(ai)})
+            messages.append({"role": "user", "content": human})
+            messages.append({"role": "assistant", "content": ai})
         
         # Handle vision input if image URL provided
         if image_url:
-            content = [
-                {"type": "text", "text": user_input},
-                {
-                    "type": "image_url", 
-                    "image_url": {
-                        "url": image_url,
-                        "detail": "high"
+            # For vision models, we need to structure the content differently
+            user_message = {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_input},
+                    {
+                        "type": "image_url", 
+                        "image_url": {
+                            "url": image_url,
+                            "detail": "high"
+                        }
                     }
-                }
-            ]
-            messages.append({"role": "user", "content": content})
+                ]
+            }
+            messages.append(user_message)
             model = VISION_MODEL  # Switch to vision model
         else:
-            messages.append({"role": "user", "content": str(user_input)})
+            messages.append({"role": "user", "content": user_input})
         
-        # Make streaming API call
-        stream = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=2000,
-            temperature=0.7,
-            stream=True
-        )
+        # Make streaming API call with proper type handling
+        try:
+            stream = client.chat.completions.create(
+                model=model,
+                messages=messages,  # type: ignore
+                max_tokens=2000,
+                temperature=0.7,
+                stream=True
+            )
+        except Exception as api_error:
+            yield f"API Error: {str(api_error)}"
+            return
         
         partial_message = ""
         for chunk in stream:
@@ -327,6 +338,7 @@ with gr.Blocks(
     with gr.Tab("Code"):
         chat_interface = gr.ChatInterface(
             chat_function,
+            type="messages",
             textbox=gr.Textbox(
                 placeholder="Enter code or image URL...",
                 container=False
@@ -354,9 +366,11 @@ with gr.Blocks(
 
 # Launch the application
 if __name__ == "__main__":
+    # Get port from environment variable for deployment compatibility
+    port = int(os.getenv("PORT", "5000"))
     demo.launch(
         server_name="0.0.0.0",
-        server_port=5000,
+        server_port=port,
         share=False,
         show_error=True,
         quiet=False
