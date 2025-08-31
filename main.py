@@ -184,10 +184,6 @@ auth_state = {"authenticated": False, "username": None}
 
 def chat_function(message, history):
     """Main chat function for Gradio interface"""
-    # Check if user is authenticated
-    if not auth_state.get('authenticated'):
-        yield "Please log in to use the chat feature."
-        return
     
     # Convert messages format to tuples format for compatibility
     history_tuples = []
@@ -304,9 +300,6 @@ def overlay_videos(base_path, ghost_path, output_path, alpha=0.5, base_start_sec
 
 def process_video_overlay(base_upload, ghost_upload, alpha, base_start, ghost_start, duration):
     """Process video overlay with user inputs"""
-    # Check if user is authenticated
-    if not auth_state.get('authenticated'):
-        return None, "Please log in to use the video overlay feature."
     
     if not base_upload or not ghost_upload:
         return None, "Please upload both base and ghost videos."
@@ -541,25 +534,12 @@ with gr.Blocks(
             with gr.Row():
                 with gr.Column(scale=1):
                     toggle_btn = gr.Button("◐", size="sm", elem_classes=["theme-toggle"])
-                with gr.Column(scale=1):
-                    login_toggle_btn = gr.Button("Login", size="sm", elem_classes=["login-button"], visible=True)
-                    logout_btn = gr.Button("Logout", size="sm", elem_classes=["login-button"], visible=False)
     
     toggle_btn.click(None, js="""() => {
         document.body.classList.toggle('light');
         return null;
     }""")
     
-    # Login modal (hidden by default)
-    with gr.Group(visible=False, elem_classes=["login-modal"]) as login_modal:
-        gr.Markdown("### Login / Register")
-        username_input = gr.Textbox(label="Username", placeholder="Enter username")
-        password_input = gr.Textbox(label="Password", type="password", placeholder="Enter password")
-        with gr.Row():
-            login_btn = gr.Button("Login", variant="primary")
-            register_btn = gr.Button("Register")
-            close_modal_btn = gr.Button("Close", variant="secondary")
-        auth_status = gr.Textbox(label="Status", interactive=False)
         
     with gr.Tab("Code"):
         chat_interface = gr.ChatInterface(
@@ -590,33 +570,6 @@ with gr.Blocks(
             outputs=[output_video, status_output]
         )
     
-    # Event handlers for authentication
-    login_toggle_btn.click(
-        fn=toggle_login_modal,
-        outputs=login_modal
-    )
-    
-    close_modal_btn.click(
-        fn=close_login_modal,
-        outputs=login_modal
-    )
-    
-    login_btn.click(
-        fn=handle_login,
-        inputs=[username_input, password_input],
-        outputs=[login_modal, login_toggle_btn, logout_btn, auth_status]
-    )
-    
-    register_btn.click(
-        fn=handle_register,
-        inputs=[username_input, password_input],
-        outputs=auth_status
-    )
-    
-    logout_btn.click(
-        fn=handle_logout,
-        outputs=[login_modal, login_toggle_btn, logout_btn, auth_status]
-    )
 
 # Launch the application
 if __name__ == "__main__":
