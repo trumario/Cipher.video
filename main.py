@@ -198,63 +198,140 @@ def process_video_overlay(base_upload, ghost_upload, alpha, base_start, ghost_st
         duration
     )
 
-# Custom CSS for better styling
-custom_css = """
+
+# Custom CSS for stealthy dark/light themes (dark default)
+CUSTOM_CSS = """
+:root {
+    --primary-color: #4a4a4a;
+    --bg-color: #1e1e1e;
+    --text-color: #d4d4d4;
+    --input-bg: #2a2a2a;
+    --button-bg: #3a3a3a;
+    --button-hover: #4a4a4a;
+    --border-color: #3a3a3a;
+    --accent-color: #666666;
+}
+
+.light {
+    --primary-color: #007bff;
+    --bg-color: #ffffff;
+    --text-color: #333333;
+    --input-bg: #f8f9fa;
+    --button-bg: #e9ecef;
+    --button-hover: #dee2e6;
+    --border-color: #ced4da;
+    --accent-color: #007bff;
+}
+
+body, .gradio-container {
+    background-color: var(--bg-color) !important;
+    color: var(--text-color) !important;
+    font-family: 'Arial', sans-serif;
+    transition: all 0.3s ease;
+}
+
 .gradio-container {
+    border: none !important;
     max-width: 1200px !important;
     margin: auto !important;
 }
 
-.chat-message {
-    font-size: 14px !important;
+input, textarea, .gr-textbox input, .gr-number input {
+    background-color: var(--input-bg) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 4px !important;
 }
 
-.tab-nav {
-    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%) !important;
+button {
+    background-color: var(--button-bg) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 4px !important;
+    transition: background-color 0.2s ease;
 }
 
-.video-upload {
-    border: 2px dashed #ccc !important;
-    border-radius: 10px !important;
+button:hover {
+    background-color: var(--button-hover) !important;
 }
 
-.status-box {
-    background-color: #f8f9fa !important;
-    border-left: 4px solid #007bff !important;
-    padding: 10px !important;
+.gr-tabitem {
+    background-color: var(--bg-color) !important;
+    color: var(--text-color) !important;
+}
+
+.gr-markdown, .gr-markdown h1, .gr-markdown h2, .gr-markdown h3 {
+    color: var(--text-color) !important;
+}
+
+.gr-chatbot {
+    background-color: var(--input-bg) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+.gr-video {
+    background-color: var(--input-bg) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+.gr-slider input[type="range"] {
+    background-color: var(--border-color) !important;
+}
+
+/* Remove any emoji or decorative elements */
+.emoji, .fun-icon { 
+    display: none !important; 
+}
+
+/* Tab styling */
+.tab-nav button {
+    background-color: var(--button-bg) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+.tab-nav button.selected {
+    background-color: var(--accent-color) !important;
 }
 """
 
 # Create Gradio interface
 with gr.Blocks(
-    title="Grok-Powered Coding & Media Agent",
-    css=custom_css,
-    theme=gr.themes.Soft()
+    title="Cipher",
+    css=CUSTOM_CSS
 ) as demo:
+    
+    # Theme toggle button
+    with gr.Row():
+        toggle_btn = gr.Button("Toggle Light/Dark Theme", size="sm")
+        toggle_btn.click(None, js="""() => {
+            document.body.classList.toggle('light');
+            return null;
+        }""")
     
     gr.Markdown(
         """
-        # 🤖 Grok-Powered Coding & Media Agent
+        # Cipher
         
-        **Powered by xAI's Grok** - Your intelligent assistant for coding help and media processing.
+        **Powered by xAI Grok** - Intelligent assistant for coding and media processing.
         
-        - 💬 **Chat Tab**: Get coding assistance and analyze images/charts from URLs
-        - 🎥 **Video Overlay Tab**: Blend two videos with customizable effects
+        - **Chat**: Coding assistance and image analysis from URLs
+        - **Video Overlay**: Blend two videos with customizable effects
         """
     )
     
-    with gr.Tab("💬 Chat Agent"):
+    with gr.Tab("Chat Agent"):
         gr.Markdown("### Coding Assistant & Image Analysis")
         
         chat_interface = gr.ChatInterface(
             chat_function,
             textbox=gr.Textbox(
-                placeholder="Ask about coding, paste an image URL for analysis (e.g., https://example.com/chart.png), or request help with any programming topic...",
+                placeholder="Ask about coding, paste an image URL for analysis, or request help with any programming topic...",
                 container=False,
                 scale=7
             ),
-            title="Grok Chat - Streaming Responses",
-            description="🔥 **Features**: Coding assistance with grok-2-1212 | Image analysis with grok-2-vision-1212 (auto-switching)",
+            title="Cipher Chat - Streaming Responses",
+            description="**Features**: Coding assistance with grok-2-1212 | Image analysis with grok-2-vision-1212 (auto-switching)",
             examples=[
                 "How do I sort a list in Python using different methods?",
                 "Explain the difference between let, const, and var in JavaScript",
@@ -264,15 +341,14 @@ with gr.Blocks(
             ]
         )
     
-    with gr.Tab("🎥 Video Overlay"):
+    with gr.Tab("Video Overlay"):
         gr.Markdown("### Video Overlay & Ghosting Tool")
         gr.Markdown("Upload two videos to create a blended overlay effect with customizable opacity and timing.")
         
         with gr.Row():
             with gr.Column():
                 base_upload = gr.Video(
-                    label="📹 Base Video",
-                    elem_classes=["video-upload"]
+                    label="Base Video"
                 )
                 base_start = gr.Number(
                     value=0.0,
@@ -283,8 +359,7 @@ with gr.Blocks(
             
             with gr.Column():
                 ghost_upload = gr.Video(
-                    label="👻 Ghost Video (Overlay)",
-                    elem_classes=["video-upload"]
+                    label="Ghost Video (Overlay)"
                 )
                 ghost_start = gr.Number(
                     value=0.0,
@@ -299,7 +374,7 @@ with gr.Blocks(
                 maximum=1.0,
                 value=0.5,
                 step=0.05,
-                label="👻 Ghost Opacity (0.1 = very transparent, 1.0 = opaque)",
+                label="Ghost Opacity (0.1 = very transparent, 1.0 = opaque)",
                 info="Higher values make the ghost video more visible"
             )
             duration = gr.Number(
@@ -311,19 +386,18 @@ with gr.Blocks(
             )
         
         process_btn = gr.Button(
-            "🎬 Generate Overlaid Video",
+            "Generate Overlaid Video",
             variant="primary",
             size="lg"
         )
         
         with gr.Row():
             output_video = gr.Video(
-                label="📤 Output Video",
+                label="Output Video",
                 show_download_button=True
             )
             status_output = gr.Textbox(
-                label="📊 Processing Status",
-                elem_classes=["status-box"],
+                label="Processing Status",
                 interactive=False
             )
         
@@ -344,7 +418,7 @@ with gr.Blocks(
         
         gr.Markdown(
             """
-            ### 📋 Instructions:
+            ### Instructions:
             1. **Upload Videos**: Select your base video and the ghost/overlay video
             2. **Adjust Timing**: Set start times for each video (useful for synchronization)
             3. **Set Opacity**: Control how transparent/opaque the ghost video appears
