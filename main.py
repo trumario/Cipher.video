@@ -6,6 +6,7 @@ import subprocess
 import requests
 import gradio as gr
 from openai import OpenAI
+from typing import List, Dict, Any, Union
 
 # Configuration - Load API key from environment variables
 XAI_API_KEY = os.getenv("XAI_API_KEY", "your_xai_api_key_here")
@@ -36,8 +37,8 @@ def query_grok_streaming(user_input, history=[], model=DEFAULT_MODEL, image_url=
         
         # Add conversation history
         for human, ai in history:
-            messages.append({"role": "user", "content": human})
-            messages.append({"role": "assistant", "content": ai})
+            messages.append({"role": "user", "content": str(human)})
+            messages.append({"role": "assistant", "content": str(ai)})
         
         # Handle vision input if image URL provided
         if image_url:
@@ -54,7 +55,7 @@ def query_grok_streaming(user_input, history=[], model=DEFAULT_MODEL, image_url=
             messages.append({"role": "user", "content": content})
             model = VISION_MODEL  # Switch to vision model
         else:
-            messages.append({"role": "user", "content": user_input})
+            messages.append({"role": "user", "content": str(user_input)})
         
         # Make streaming API call
         stream = client.chat.completions.create(
@@ -103,12 +104,12 @@ def overlay_videos(base_path, ghost_path, output_path, alpha=0.5, base_start_sec
         max_frames = int(duration_sec * fps) if duration_sec else None
         
         # Setup video writer with H.264 codec
-        fourcc = cv2.VideoWriter_fourcc(*'H264')
+        fourcc = cv2.VideoWriter.fourcc(*'H264')
         try:
             out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         except:
             # Fallback to mp4v if H.264 not available
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            fourcc = cv2.VideoWriter.fourcc(*'mp4v')
             out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         
         frame_count = 0
