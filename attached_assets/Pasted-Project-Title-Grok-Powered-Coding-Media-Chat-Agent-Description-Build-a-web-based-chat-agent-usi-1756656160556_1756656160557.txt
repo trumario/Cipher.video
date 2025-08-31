@@ -1,0 +1,186 @@
+Project Title: Grok-Powered Coding & Media Chat Agent
+
+Description: Build a web-based chat agent using Python and Gradio. It integrates xAI's Grok API for coding assistance and image analysis (e.g., stock charts via URLs). Includes a separate tab for uploading two videos and overlaying them into an MP4 with H.264 encoding, supporting ghosting, start offsets, and duration limits. Deployable on Replit for mobile/web access.
+
+Steps to Set Up and Run:
+1. Create a new Python repl in Replit.
+2. Install dependencies: In the Shell tab, run `pip install gradio requests opencv-python-headless ffmpeg-python`.
+   - Note: If FFmpeg isn't available, run `apt install ffmpeg` in the Shell (Replit supports this for multimedia).
+3. Add your xAI API key: In Replit's Secrets (environment variables), add a key named `XAI_API_KEY` with your value from https://x.ai/api.
+4. Paste the following code into main.py.
+5. Run the repl: Click Run or execute `python main.py` in Shell. Access the webview URL (e.g., for phones/browsers).
+
+Full Code for main.py:
+
+import requests
+import gradio as gr
+import json
+import cv2
+import subprocess
+import os
+import re  # For URL parsing
+
+# Load API key from Replit secrets
+API_KEY = os.environ.get("XAI_API_KEY", "your_xai_api_key_here")  # Fallback for testing
+API_URL = "https://api.x.ai/v1/chat/completions"
+DEFAULT_MODEL = "grok-code-fast-1"
+VISION_MODEL = "grok-beta"  # Adjust if needed; confirm in xAI docs
+
+def extract_image_url(message):
+    urls = re.findall(r'(https?://\S+\.(?:jpg|jpeg|png))', message, re.IGNORECASE)
+    return urls[0] if urls else None
+
+def query_grok(user_input, history=[], model=DEFAULT_MODEL, image_url=None):
+    messages = [{"role": "system", "content": "You are a helpful assistant. For coding, use reasoning. For images, analyze details like charts."}]
+    for human, ai in history:
+        messages.append({"role": "user", "content": human})
+        messages.append({"role": "assistant", "content": ai})
+    
+    if image_url:
+        content = [{"type": "text", "text": user_input}]
+        content.append({"type": "image_url", "image_url": {"url": image_url, "detail": "auto"}})
+        messages.append({"role": "user", "content": content})
+        model = VISION_MODEL
+    else:
+        messages.append({"role": "user", "content": user_input})
+    
+    response = requests.post(
+        API_URL,
+        headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
+        json={
+            "model": model,
+            "messages": messages,
+            "max_tokens": 1000,
+            "temperature": 0.7,
+            "stream": True
+        },
+        stream=True
+    )
+    
+    if response.status_code != 200:
+        yield f"Error: {response.text}"
+        return
+
+    partial_message = ""
+    for chunk in response.iter_lines():
+        if chunk:
+            try:
+                chunk_data = chunk.decode('utf-8').strip()
+                if chunk_data.startswith("data: "):
+                    json_data = json.loads(chunk_data[6:])
+                    delta = json_data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    if delta:
+                        partial_message += delta
+                        yield partial_message
+            except json.JSONDecodeError:
+                continue
+
+def chat_fn(message, history):
+    image_url = extract_image_url(message)
+    for partial in query_grok(message, history, image_url=image_url):
+        yield partial
+
+def overlay_videos(base_path, ghost_path, output_path, alpha=0.5, base_start_sec=0.0, ghost_start_sec=0.0, duration_sec=None):
+    cap_base = cv2.VideoCapture(base_path)
+    cap_ghost = cv2.VideoCapture(ghost_path)
+    
+    if not cap_base.isOpened() or not cap_ghost.isOpened():
+        return None, "Error opening video files."
+    
+    cap_base.set(cv2.CAP_PROP_POS_MSEC, base_start_sec * 1000)
+    cap_ghost.set(cv2.CAP_PROP_POS_MSEC, ghost_start_sec * 1000)
+    
+    fps = cap_base.get(cv2.CAP_PROP_FPS)
+    width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    max_frames = int(duration_sec * fps) if duration_sec else None
+    
+    fourcc = cv2.VideoWriter_fourcc(*'H264')
+    try:
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    except:
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    
+    frame_count = 0
+    while cap_base.isOpened() and cap_ghost.isOpened():
+        if max_frames is not None and frame_count >= max_frames:
+            break
+        
+        ret_base, frame_base = cap_base.read()
+        ret_ghost, frame_ghost = cap_ghost.read()
+        
+        if not ret_base or not ret_ghost:
+            break
+        
+        if frame_ghost.shape != frame_base.shape:
+            frame_ghost = cv2.resize(frame_ghost, (width, height))
+        
+        blended = cv2.addWeighted(frame_base, 1.0, frame_ghost, alpha, 0)
+        
+        out.write(blended)
+        frame_count += 1
+    
+    cap_base.release()
+    cap_ghost.release()
+    out.release()
+    
+    try:
+        temp_video = output_path + '_noaudio.mp4'
+        os.rename(output_path, temp_video)
+        subprocess.run([
+            'ffmpeg', '-i', temp_video, '-i', base_path,
+            '-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0',
+            output_path
+        ], check=True)
+        os.remove(temp_video)
+        return output_path, f"Processed {frame_count} frames with audio."
+    except Exception as e:
+        return output_path, f"Video created, but audio muxing failed: {e}"
+
+def process_videos(base_upload, ghost_upload, alpha, base_start, ghost_start, duration):
+    if not base_upload or not ghost_upload:
+        return None, "Please upload both videos."
+    
+    output_path = "output.mp4"
+    output_file, msg = overlay_videos(base_upload, ghost_upload, output_path, alpha, base_start, ghost_start, duration)
+    return output_file, msg
+
+with gr.Blocks(title="Enhanced Coding & Media Agent") as demo:
+    gr.Markdown("Powered by Grok. Chat for coding/images; overlay videos in the other tab.")
+    
+    with gr.Tab("Chat Agent"):
+        chat = gr.ChatInterface(
+            chat_fn,
+            textbox=gr.Textbox(placeholder="Ask about code or paste a chart URL (e.g., https://stockchart.com/image.png)"),
+            title="Coding & Chart Analysis (Streaming)",
+            description="Handles text/coding with grok-code-fast-1; auto-switches for images. E.g., 'Analyze trends in this: https://example.com/chart.jpg'",
+            examples=["How to sort a list in Python?", "Describe this stock chart: https://example.com/stock.png"],
+            theme="soft"
+        )
+    
+    with gr.Tab("Video Overlay"):
+        with gr.Row():
+            base_upload = gr.Video(label="Base Video")
+            ghost_upload = gr.Video(label="Ghost Video (Overlay)")
+        alpha_slider = gr.Slider(0.1, 1.0, value=0.5, label="Ghost Opacity (Alpha)")
+        base_start = gr.Number(value=0.0, label="Base Start (seconds)")
+        ghost_start = gr.Number(value=0.0, label="Ghost Start (seconds)")
+        duration = gr.Number(value=None, label="Duration (seconds, optional)")
+        process_btn = gr.Button("Generate Overlaid MP4")
+        output_video = gr.Video(label="Output MP4")
+        status = gr.Textbox(label="Status")
+        
+        process_btn.click(
+            process_videos,
+            inputs=[base_upload, ghost_upload, alpha_slider, base_start, ghost_start, duration],
+            outputs=[output_video, status]
+        )
+
+demo.launch(share=True, server_name="0.0.0.0", server_port=7860)  # For Replit webview
+
+Additional Notes:
+- If API errors occur, check https://x.ai/api for model availability (e.g., if 'grok-beta' isn't accessible, replace with 'grok-4').
+- For production, add authentication or deploy to Hugging Face Spaces.
+- Test: Chat with coding queries or chart URLs; upload sample videos for overlay.
