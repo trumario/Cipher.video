@@ -63,8 +63,10 @@ client = create_xai_client()
 
 def extract_image_url(message: str) -> Optional[str]:
     """Extract image URLs from user message using regex"""
-    urls = re.findall(r'(https?://\S+\.(?:jpg|jpeg|png|gif|webp))', message, re.IGNORECASE)
-    return urls[0] if urls else None
+    # Improved regex for better security and accuracy
+    url_pattern = re.compile(r'https?://[^\s]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s]*)?', re.IGNORECASE)
+    match = url_pattern.search(message)
+    return match.group(0) if match else None
 
 def query_grok_streaming(user_input: str, history: Optional[List] = None, model: str = DEFAULT_MODEL, image_url: Optional[str] = None) -> Generator[str, None, None]:
     """Query Grok API with streaming response support"""
@@ -133,15 +135,17 @@ def query_grok_streaming(user_input: str, history: Optional[List] = None, model:
 def chat_function(message: str, history: List) -> str:
     """Main chat function for Gradio interface"""
     image_url = extract_image_url(message)
-    
+
     # Collect all streaming responses into a single string
     full_response = ""
     for partial_response in query_grok_streaming(message, history, image_url=image_url):
         full_response = partial_response  # Each yield contains the complete message so far
-    
+
     return full_response
 
-def overlay_videos(base_path: str, ghost_path: str, output_path: str, alpha: float = 0.5, base_start_sec: float = 0.0, ghost_start_sec: float = 0.0, duration_sec: Optional[float] = None) -> Tuple[Optional[str], str]:
+def overlay_videos(base_path: str, ghost_path:
+
+Optional[float] = None) -> Tuple[Optional[str], str]:
     """Overlay two videos with customizable parameters"""
     try:
         cap_base = cv2.VideoCapture(base_path)
