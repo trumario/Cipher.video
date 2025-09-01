@@ -18,7 +18,7 @@ API_KEY_PLACEHOLDER = "your_xai_api_key_here"
 DEFAULT_PORT = 5000
 MAX_PORT = 65535
 MIN_PORT = 1
-MAX_FILE_SIZE_GB = "20gb"  # Increased from 1gb to 20gb as requested
+MAX_FILE_SIZE_GB = "5gb"  # Set to 5GB for better upload reliability
 MAX_THREADS = 20
 ALPHA_MIN = 0.1
 ALPHA_MAX = 1.0
@@ -141,9 +141,9 @@ def chat_function(message: str, history: List) -> str:
     
     return full_response
 
-def overlay_videos(base_path: str, ghost_path: str, output_path: str, alpha: float = 0.5, base_start_sec: float = 0.0, ghost_start_sec
+def overlay_videos(base_path: str, ghost_path: str, output_path: str, alpha: float = 0.5, base_start_sec: float = 0.0, ghost_start_sec: float = 0.0, duration_sec: Optional[float] = None) -> Tuple[Optional[str], str]:
     """Overlay two videos with customizable parameters"""
-    try
+    try:
         cap_base = cv2.VideoCapture(base_path)
         cap_ghost = cv2.VideoCapture(ghost_path)
 
@@ -225,6 +225,8 @@ def process_video_overlay(base_upload: str, ghost_upload: str, alpha: float, bas
 # Custom CSS for
 # Custom CSS for stealthy dark/light themes (dark default)
 CUSTOM_CSS = """
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
 :root {
     --primary-color: #4a4a4a;
     --bg-color: #1e1e1e;
@@ -257,6 +259,8 @@ html, body {
     color: var(--text-color) !important;
     font-family: 'Arial', sans-serif;
     transition: all 0.3s ease;
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
 }
 
 .gradio-container {
@@ -285,6 +289,15 @@ input, textarea, .gr-textbox input, .gr-number input, .gr-textbox textarea {
     border: 1px solid var(--border-color) !important;
     border-radius: 4px !important;
     box-shadow: none !important;
+    font-size: 16px !important;
+    padding: 12px !important;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+    user-select: text !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    appearance: none !important;
 }
 
 /* Button styling */
@@ -370,23 +383,68 @@ div, span, p, label {
 
 /* Mobile responsive design */
 @media (max-width: 768px) {
+    html, body {
+        -webkit-text-size-adjust: none !important;
+        touch-action: manipulation !important;
+    }
+    
     .gradio-container {
-        padding: 5px !important;
+        padding: 8px !important;
         width: 100vw !important;
         height: 100vh !important;
+        overflow-x: hidden !important;
     }
     
     .gr-chatbot, .chatbot {
-        height: 60vh !important;
+        height: 55vh !important;
+        min-height: 300px !important;
     }
     
     .gr-row {
         flex-direction: column !important;
+        gap: 8px !important;
     }
     
     .gr-column {
         width: 100% !important;
-        margin-bottom: 10px !important;
+        margin-bottom: 8px !important;
+        min-width: 0 !important;
+    }
+    
+    /* Enhanced input handling for mobile */
+    input, textarea, .gr-textbox input, .gr-textbox textarea {
+        font-size: 16px !important;
+        padding: 14px 12px !important;
+        min-height: 44px !important;
+        border-radius: 8px !important;
+        touch-action: manipulation !important;
+        -webkit-touch-callout: default !important;
+        -webkit-user-select: text !important;
+    }
+    
+    button, .gr-button {
+        min-height: 44px !important;
+        padding: 12px 16px !important;
+        font-size: 16px !important;
+        touch-action: manipulation !important;
+    }
+    
+    .gr-video, .video-container {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+    }
+    
+    /* Prevent zoom on input focus */
+    @media screen and (-webkit-min-device-pixel-ratio: 0) {
+        select, textarea, input[type="text"], input[type="password"],
+        input[type="datetime"], input[type="datetime-local"],
+        input[type="date"], input[type="month"], input[type="time"],
+        input[type="week"], input[type="number"], input[type="email"],
+        input[type="url"], input[type="search"], input[type="tel"],
+        input[type="color"] {
+            font-size: 16px !important;
+        }
     }
 }
 
@@ -541,7 +599,7 @@ if __name__ == "__main__":
             max_threads=20,  # Increased for better deployment performance
             inbrowser=False,  # Disable auto-opening browser in deployment
             root_path=None,  # Let deployment infrastructure handle root path
-            max_file_size="1gb",  # Allow up to 1GB file uploads
+            max_file_size="5gb",  # Increased to 5GB for video uploads
             app_kwargs={
                 "docs_url": None,  # Disable Swagger docs in production
                 "redoc_url": None  # Disable ReDoc in production
