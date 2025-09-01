@@ -168,13 +168,19 @@ def overlay_videos(
 ) -> tuple[Optional[str], str]:
     """Overlay two videos with customizable parameters"""
     try:
-        # Validate file paths
+        # Validate inputs
         if not validate_file_path(base_path) or not validate_file_path(ghost_path):
             return None, "Error: One or both video files are invalid or inaccessible."
-
-        # Validate file sizes
         if not validate_file_size(base_path) or not validate_file_size(ghost_path):
             return None, f"Error: One or both video files exceed the {MAX_FILE_SIZE_GB}GB limit."
+        if not ALPHA_MIN <= alpha <= ALPHA_MAX:
+            return None, f"Error: Alpha must be between {ALPHA_MIN} and {ALPHA_MAX}."
+        if base_start_sec < 0:
+            return None, "Error: Base start time must be non-negative."
+        if ghost_start_sec < 0:
+            return None, "Error: Ghost start time must be non-negative."
+        if duration_sec is not None and duration_sec <= 0:
+            return None, "Error: Duration must be positive or empty."
 
         cap_base = cv2.VideoCapture(base_path)
         cap_ghost = cv2.VideoCapture(ghost_path)
@@ -191,7 +197,7 @@ def overlay_videos(
         if width <= 0 or height <= 0:
             return None, "Error: Invalid video dimensions."
 
-        max_frames = int(duration_sec * fps) if duration_sec is not None and duration_sec > 0 else None
+        max_frames = int(duration_sec * fps) if duration_sec is not None else None
 
         fourcc = cv2.VideoWriter.fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
@@ -219,7 +225,6 @@ def overlay_videos(
     except Exception as e:
         return None, f"Video processing failed: {e}"
     finally:
-        # Ensure resources are released even on error
         if 'cap_base' in locals():
             cap_base.release()
         if 'cap_ghost' in locals():
@@ -236,22 +241,29 @@ def process_video_overlay(
     duration: Optional[float]
 ) -> tuple[Optional[str], Optional[str], str]:
     """Process video overlay with user inputs"""
+    logger.info(f"Received inputs: base_upload={base_upload}, ghost_upload={ghost_upload}, alpha={alpha}, base_start={base_start}, ghost_start={ghost_start}, duration={duration}")
+
     if not base_upload or not ghost_upload:
         return None, None, "Please upload both base and ghost videos."
-    if not ALPHA_MIN <= alpha <= ALPHA_MAX:
-        return None, None, f"Alpha value must be between {ALPHA_MIN} and {ALPHA_MAX}"
+    if not isinstance(alpha, (int, float)) or not ALPHA_MIN <= alpha <= ALPHA_MAX:
+        return None, None, f"Alpha value must be a number between {ALPHA_MIN} and {ALPHA_MAX}."
     if not isinstance(base_start, (int, float)) or base_start < 0:
         return None, None, "Base start time must be a non-negative number."
     if not isinstance(ghost_start, (int, float)) or ghost_start < 0:
         return None, None, "Ghost start time must be a non-negative number."
-    if duration is not None and not isinstance(duration, (int, float)):
-        return None, None, "Duration must be a number or empty."
+    if duration is not None:
+        try:
+            duration = float(duration)
+            if duration <= 0:
+                return None, None, "Duration must be a positive number or empty."
+        except (TypeError, ValueError):
+            return None, None, "Duration must be a valid number or empty."
 
     timestamp = int(time.time())
     output_path = f"overlay_output_{timestamp}.mp4"
     base_start = max(0.0, float(base_start))
     ghost_start = max(0.0, float(ghost_start))
-    duration_sec = float(duration) if duration is not None and duration > 0 else None
+    duration_sec = duration if duration is not None else None
 
     result_path, status_msg = overlay_videos(
         base_path=base_upload,
@@ -262,6 +274,7 @@ def process_video_overlay(
         ghost_start_sec=ghost_start,
         duration_sec=duration_sec
     )
+    logger.info(f"Overlay result: path={result_path}, message={status_msg}")
     return result_path, output_path, status_msg
 
 # Custom CSS for UI
@@ -403,7 +416,7 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
         )
 
     with gr.Tab("Video"):
-        gr.Markdown(f"**Note**: Maximum file size per video is {MAX_FILE_SIZE_GB}GB.")
+        gr.Markdown(f"**Note**: Maximum file size per video is {MAX_FILE_SIZE_GB}GB. Duration must be a positive number or empty.")
         with gr.Row():
             base_upload = gr.Video(label="Base Video")
             ghost_upload = gr.Video(label="Ghost Video")
