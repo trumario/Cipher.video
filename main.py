@@ -15,6 +15,15 @@ XAI_API_BASE_URL = "https://api.x.ai/v1"
 DEFAULT_MODEL = "grok-code-fast-1"
 VISION_MODEL = "grok-4-0709"
 API_KEY_PLACEHOLDER = "your_xai_api_key_here"
+DEFAULT_PORT = 5000
+MAX_PORT = 65535
+MIN_PORT = 1
+MAX_FILE_SIZE_GB = "20gb"  # Increased from 1gb to 20gb as requested
+MAX_THREADS = 20
+ALPHA_MIN = 0.1
+ALPHA_MAX = 1.0
+MAX_TOKENS = 2000
+TEMPERATURE = 0.7
 
 # Configuration - Load API key from environment variables
 XAI_API_KEY = os.getenv("XAI_API_KEY", API_KEY_PLACEHOLDER)
@@ -103,8 +112,8 @@ def query_grok_streaming(user_input: str, history: Optional[List] = None, model:
             stream = client.chat.completions.create(
                 model=model,
                 messages=formatted_messages,
-                max_tokens=2000,
-                temperature=0.7,
+                max_tokens=MAX_TOKENS,
+                temperature=TEMPERATURE,
                 stream=True
             )
         except Exception as api_error:
@@ -132,9 +141,9 @@ def chat_function(message: str, history: List) -> str:
     
     return full_response
 
-def overlay_videos(base_path: str, ghost_path: str, output_path: str, alpha: float = 0.5, base_start_sec: float = 0.0, ghost_start_sec: float = 0.0, duration_sec: Optional[float] = None) -> Tuple[Optional[str], str]:
+def overlay_videos(base_path: str, ghost_path: str, output_path: str, alpha: float = 0.5, base_start_sec: float = 0.0, ghost_start_sec
     """Overlay two videos with customizable parameters"""
-    try:
+    try
         cap_base = cv2.VideoCapture(base_path)
         cap_ghost = cv2.VideoCapture(ghost_path)
 
