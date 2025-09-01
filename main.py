@@ -8,7 +8,6 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import gradio as gr
-import base64
 from pathlib import Path
 
 # Set up logging
@@ -26,7 +25,7 @@ MAX_FILE_SIZE_GB = 10
 MAX_THREADS = min(os.cpu_count() or 4, 20)
 ALPHA_MIN = 0.1
 ALPHA_MAX = 1.0
-MAX_TOKENS = 2000
+MAX_COMPLETION_TOKENS = 16384
 TEMPERATURE = 0.7
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_GB * 1024**3
 DEFAULT_FRAME_SKIP = 1
@@ -34,7 +33,6 @@ MAX_FRAME_SKIP = 10
 DEFAULT_RESOLUTION_SCALE = 1.0
 PROGRESS_UPDATE_INTERVAL = 100
 SUPPORTED_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv'}
-SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
 MSEC_PER_SEC = 1000
 URL_MAX_LENGTH = 2048
 QUERY_MAX_LENGTH = 1024
@@ -84,7 +82,7 @@ def query_grok_streaming(
     model: str = DEFAULT_MODEL,
     image_url: Optional[str] = None
 ) -> Generator[str, None, None]:
-    """Query Grok API with streaming response support"""
+    """Query Grok API with streaming response support and automatic continuation if truncated"""
     if history is None:
         history = []
     if client is None:
@@ -121,24 +119,41 @@ def query_grok_streaming(
             messages.append({"role": "user", "content": user})
             messages.append({"role": "assistant", "content": assistant})
         user_content = user_input
-        if image_url:
-            model = VISION_MODEL  # Override to vision-capable model
+        has_image = bool(image_url)
+        if has_image:
+            model = VISION_MODEL
             user_content = [
                 {"type": "text", "text": user_input},
                 {"type": "image_url", "image_url": {"url": image_url}}
             ]
         messages.append({"role": "user", "content": user_content})
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
-            stream=True
-        )
-        for chunk in response:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
+        full_response = ""
+        continuation = False
+        while True:
+            if continuation:
+                messages.append({"role": "assistant", "content": full_response})
+                messages.append({"role": "user", "content": "Please continue your previous response exactly from where it was cut off, without repeating or summarizing previous content."})
+                yield "\n\n(Continuing...)\n\n"
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=TEMPERATURE,
+                max_tokens=MAX_COMPLETION_TOKENS,
+                stream=True
+            )
+            finish_reason = None
+            for chunk in response:
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    full_response += delta
+                    yield delta
+                if chunk.choices[0].finish_reason:
+                    finish_reason = chunk.choices[0].finish_reason
+            if finish_reason != 'length':
+                break
+            continuation = True
+            # Reset has_image for continuations
+            has_image = False
     except Exception as e:
         yield f"Error querying API: {str(e)}"
 
