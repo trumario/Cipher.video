@@ -84,65 +84,56 @@ def query_grok_streaming(
         yield "Error: API client not available. Please set XAI_API_KEY."
         return
     try:
+        system_content = (
+            "You are an expert software developer with extensive experience in secure coding practices, performance optimization, and code refactoring across multiple programming languages. "
+            "Your goal is to review and refactor the provided code to ensure it meets the highest standards of quality, security, and efficiency, adapting to the language and context of the input code.\n\n"
+            "Step-by-Step Instructions:\n\n"
+            "Understand the Codebase Context: Analyze the provided code in the context of the broader codebase. Identify opportunities to leverage existing base layer components, functions, or modules instead of reinventing functionality. Ensure the code builds upon foundational elements where appropriate, avoiding duplication.\n\n"
+            "Security Audit: Conduct a thorough security review. Check for vulnerabilities such as buffer overflows, integer overflows, null pointer dereferences, memory leaks, race conditions, and injection risks (e.g., SQL injection, command injection). Use secure coding patterns (e.g., bounds checking, safe string handling with strncpy/snprintf). Eliminate any insecure practices and suggest hardened alternatives.\n\n"
+            "Remove Redundancy: Identify and eliminate redundant code, including duplicated logic, unused variables, or unnecessary computations. Consolidate similar operations into reusable functions if they align with the codebase.\n\n"
+            "Eliminate TODOs and Placeholders: Remove all TODO comments, FIXMEs, or incomplete sections. Ensure the code is fully implemented and self-contained.\n\n"
+            "Replace Magic Numbers and Hardcoded Values: Identify any magic numbers (e.g., unexplained constants like 1024 or 5). Replace them with named constants (#define or const) that are descriptive and ideally defined in a header file or configuration module for maintainability.\n\n"
+            "Optimize Performance: Profile the code mentally for inefficiencies. Replace slow algorithms (e.g., O(n^2) sorts with O(n log n) or better where applicable) with optimized alternatives. Use efficient data structures, minimize allocations, and apply compiler optimizations hints if relevant. Ensure the code is performant without sacrificing readability or security.\n\n"
+            "General Best Practices:\n\n"
+            "Adhere to coding standards for the language.\n"
+            "Improve readability with consistent naming, indentation, and comments explaining non-obvious logic.\n"
+            "Add error handling for all potential failure points (e.g., check return values of malloc, fopen).\n"
+            "Ensure portability and avoid platform-specific assumptions unless necessary.\n"
+            "Make the code modular, testable, and maintainable.\n\n"
+            "Output Format:\n\n"
+            "Provide the fully refactored code in a single, complete block.\n"
+            "Follow the code with a concise summary of changes made, categorized by security, optimization, redundancy removal, etc.\n"
+            "If any assumptions were made (e.g., about the codebase), note them briefly.\n"
+            "Do not introduce new features; only refine the existing code.\n\n"
+            "Ensure the final output is perfect, secure, optimized code ready for production. If the code cannot be fully improved without additional context, state that clearly and suggest next steps."
+        )
         messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are an expert software developer with extensive experience in secure coding practices, performance optimization, and code refactoring across multiple programming languages. Your goal is to review and refactor the provided code to ensure it meets the highest standards of quality, security, and efficiency, adapting to the language and context of the input code.\n\n"
-                    "Input Code:\n\n"
-                    "[Input code here]\n\n"
-                    "Step-by-Step Instructions:\n\n"
-                    "Understand the Codebase Context: Analyze the provided code in the context of the broader codebase. Identify opportunities to leverage existing base layer components, functions, or modules instead of reinventing functionality. Ensure the code builds upon foundational elements where appropriate, avoiding duplication.\n\n"
-                    "Security Audit: Conduct a thorough security review. Check for vulnerabilities such as overflows, null references, memory leaks, race conditions, and injection risks (e.g., SQL injection, command injection). Use secure coding patterns appropriate to the language (e.g., bounds checking, safe input handling). Eliminate any insecure practices and suggest hardened alternatives.\n\n"
-                    "Remove Redundancy: Identify and eliminate redundant code, including duplicated logic, unused variables, or unnecessary computations. Consolidate similar operations into reusable functions if they align with the codebase.\n\n"
-                    "Eliminate TODOs and Placeholders: Remove all TODO comments, FIXMEs, or incomplete sections. Ensure the code is fully implemented and self-contained.\n\n"
-                    "Replace Magic Numbers and Hardcoded Values: Identify any magic numbers (e.g., unexplained constants like 1024 or 5). Replace them with named constants that are descriptive and ideally defined in a configuration section or module for maintainability, using language-appropriate mechanisms (e.g., const, enums, or defines).\n\n"
-                    "Optimize Performance: Profile the code mentally for inefficiencies. Replace slow algorithms (e.g., O(n^2) sorts with O(n log n) or better where applicable) with optimized alternatives. Use efficient data structures, minimize allocations, and apply optimization techniques if relevant. Ensure the code is performant without sacrificing readability or security.\n\n"
-                    "General Best Practices:\n\n"
-                    "Adhere to the standards and conventions of the programming language used in the input code.\n"
-                    "Improve readability with consistent naming, indentation, and comments explaining non-obvious logic.\n"
-                    "Add error handling for all potential failure points (e.g., check return values of allocation or I/O functions).\n\n"
-                    "Ensure portability and avoid platform-specific assumptions unless necessary.\n"
-                    "Make the code modular, testable, and maintainable.\n\n"
-                    "Output Format:\n\n"
-                    "Provide the fully refactored code in a single, complete block.\n"
-                    "Follow the code with a concise summary of changes made, categorized by security, optimization, redundancy removal, etc.\n"
-                    "If any assumptions were made (e.g., about the codebase or language specifics), note them briefly.\n"
-                    "Do not introduce new features; only refine the existing code.\n\n"
-                    "Ensure the final output is perfect, secure, optimized code ready for production. If the code cannot be fully improved without additional context, state that clearly and suggest next steps."
-                )
-            }
+            {"role": "system", "content": system_content},
         ]
-        for human, ai in history:
-            messages.append({"role": "user", "content": human})
-            messages.append({"role": "assistant", "content": ai})
+        for user, assistant in history:
+            messages.append({"role": "user", "content": user})
+            messages.append({"role": "assistant", "content": assistant})
+        user_content = user_input
         if image_url:
-            messages.append({
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": user_input},
-                    {"type": "image_url", "image_url": {"url": image_url, "detail": "high"}}
-                ]
-            })
-            model = VISION_MODEL
-        else:
-            messages.append({"role": "user", "content": user_input})
-
-        stream = client.chat.completions.create(
+            model = VISION_MODEL  # Override to vision-capable model
+            user_content = [
+                {"type": "text", "text": user_input},
+                {"type": "image_url", "image_url": {"url": image_url}}
+            ]
+        messages.append({"role": "user", "content": user_content})
+        response = client.chat.completions.create(
             model=model,
             messages=messages,
-            max_tokens=MAX_TOKENS,
             temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
             stream=True
         )
-        partial_message = ""
-        for chunk in stream:
-            if chunk.choices[0].delta.content is not None:
-                partial_message += chunk.choices[0].delta.content
-                yield partial_message
+        for chunk in response:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
     except Exception as e:
-        yield f"Error communicating with Grok API: {e}"
-        return
+        yield f"Error querying API: {str(e)}"
 
 def respond(
     message: str,
@@ -166,16 +157,13 @@ def respond(
             chat_history.append((message, f"Error processing file: {str(e)}"))
             yield chat_history, message, file_path
             return
-
     if not image_url:
         image_url = extract_image_url(message)
-
     bot_message = ""
     new_history = chat_history + [(message, bot_message)]
     yield new_history, "", None
-
-    for partial in query_grok_streaming(message, [(h, a) for h, a in chat_history], model=model, image_url=image_url):
-        bot_message = partial
+    for delta in query_grok_streaming(message, [(h, a) for h, a in chat_history], model=model, image_url=image_url):
+        bot_message += delta
         new_history[-1] = (message, bot_message)
         yield new_history, "", None
 
@@ -266,40 +254,32 @@ def overlay_videos(
             return None, f"Error: Frame skip must be between 1 and {MAX_FRAME_SKIP}."
         if not 0.1 <= resolution_scale <= 1.0:
             return None, "Error: Resolution scale must be between 0.1 and 1.0."
-
         cap_base = cv2.VideoCapture(base_path)
         cap_ghost = cv2.VideoCapture(ghost_path)
         if not cap_base.isOpened() or not cap_ghost.isOpened():
             return None, "Error: Could not open one or both video files."
-
         cap_base.set(cv2.CAP_PROP_POS_MSEC, base_start_sec * MSEC_PER_SEC)
         cap_ghost.set(cv2.CAP_PROP_POS_MSEC, ghost_start_sec * MSEC_PER_SEC)
-
         fps = cap_base.get(cv2.CAP_PROP_FPS)
         if fps <= 0:
             return None, "Error: Invalid FPS value in base video."
-
         width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH) * resolution_scale)
         height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT) * resolution_scale)
         if width <= 0 or height <= 0:
             return None, "Error: Invalid video dimensions."
-
         # Calculate remaining frames and total output frames
         start_frame = int(cap_base.get(cv2.CAP_PROP_POS_FRAMES))
         total_frames = int(cap_base.get(cv2.CAP_PROP_FRAME_COUNT))
         remaining_frames = total_frames - start_frame
         if remaining_frames <= 0:
             return None, "Error: No frames available after start time."
-
         max_input_frames = int(duration_sec * fps) if duration_sec is not None else remaining_frames
         max_input_frames = min(max_input_frames, remaining_frames)
         total_output_frames = max_input_frames // frame_skip
-
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps / frame_skip, (width, height))
         if not out.isOpened():
             return None, "Error: Could not initialize video writer. Ensure OpenCV is built with FFmpeg support."
-
         processed_frames = 0
         with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
             while processed_frames < total_output_frames and cap_base.isOpened() and cap_ghost.isOpened():
@@ -318,19 +298,15 @@ def overlay_videos(
                             break
                 if not batch_frames:
                     break
-
                 futures = [executor.submit(process_frame, fb, fg, width, height, alpha) for fb, fg in batch_frames]
                 for future in futures:
                     blended = future.result()
                     out.write(blended)
-
                 processed_frames += len(batch_frames)
                 if progress and total_output_frames > 0 and processed_frames % PROGRESS_UPDATE_INTERVAL == 0:
                     progress(processed_frames / total_output_frames, desc=f"Processing {processed_frames}/{total_output_frames} frames")
-
         if progress and total_output_frames > 0:
             progress(1.0, desc=f"Completed {processed_frames}/{total_output_frames} frames")
-
         return output_path, f"Successfully processed {processed_frames} frames. Video saved to: {output_path}"
     except Exception as e:
         logger.error(f"Overlay error: {e}")
@@ -356,20 +332,16 @@ def process_video_overlay(
 ) -> Tuple[Optional[str], Optional[str], str]:
     """Process video overlay with user inputs and progress tracking"""
     logger.info(f"Received inputs: base_upload={base_upload}, ghost_upload={ghost_upload}, alpha={alpha}, base_start={base_start}, ghost_start={ghost_start}, duration={duration}, frame_skip={frame_skip}, resolution_scale={resolution_scale}")
-
     if not base_upload or not ghost_upload:
         return None, None, "Please upload both base and ghost videos."
-
     try:
         base_start_sec = parse_timecode(base_start)
         ghost_start_sec = parse_timecode(ghost_start)
         duration_sec = parse_timecode(duration) if duration else None
     except ValueError as e:
         return None, None, str(e)
-
     timestamp = int(time.time())
     output_path = f"overlay_output_{timestamp}.mp4"
-
     result_path, status_msg = overlay_videos(
         base_path=base_upload,
         ghost_path=ghost_upload,
@@ -386,18 +358,16 @@ def process_video_overlay(
     return result_path, output_path, status_msg
 
 def get_current_time_js(video_id: str) -> str:
-    """Generate JS to get current video time and format as HH:MM:SS.mmm"""
+    """Generate JS to get current video time, format as HH:MM:SS.mmm"""
     return f"""() => {{
         const vid = document.querySelector('#{video_id} video');
-        if (vid) {{
-            const t = vid.currentTime;
-            const hours = Math.floor(t / 3600).toString().padStart(2, '0');
-            const mins = Math.floor((t % 3600) / 60).toString().padStart(2, '0');
-            const secs = Math.floor(t % 60).toString().padStart(2, '0');
-            const ms = Math.floor((t % 1) * 1000).toString().padStart(3, '0');
-            return `${{hours}}:${{mins}}:${{secs}}.${{ms}}`;
-        }}
-        return '00:00:00.000';
+        if (!vid) return '00:00:00.000';
+        const t = vid.currentTime;
+        const hours = Math.floor(t / 3600).toString().padStart(2, '0');
+        const mins = Math.floor((t % 3600) / 60).toString().padStart(2, '0');
+        const secs = Math.floor(t % 60).toString().padStart(2, '0');
+        const ms = Math.floor((t % 1) * 1000).toString().padStart(3, '0');
+        return `${{hours}}:${{mins}}:${{secs}}.${{ms}}`;
     }}"""
 
 # Custom CSS for minimalistic UI
@@ -485,9 +455,9 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
     max-height: 70vh;
     overflow-y: auto;
 }
-.gr-chatbot .message, .chatbot .message { 
-    background-color: transparent; 
-    color: var(--text-color); 
+.gr-chatbot .message, .chatbot .message {
+    background-color: transparent;
+    color: var(--text-color);
     padding: 8px;
     margin: 4px;
 }
@@ -498,13 +468,16 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
     width: 100%;
     height: auto;
 }
-.gr-slider input[type="range"] { 
-    background-color: transparent; 
-    accent-color: var(--accent-color); 
+.gr-video video:focus {
+    outline: none;
 }
-.gr-markdown, .gr-markdown h1, .gr-markdown h2, .gr-markdown h3 { 
-    color: var(--text-color); 
-    background-color: transparent; 
+.gr-slider input[type="range"] {
+    background-color: transparent;
+    accent-color: var(--accent-color);
+}
+.gr-markdown, .gr-markdown h1, .gr-markdown h2, .gr-markdown h3 {
+    color: var(--text-color);
+    background-color: transparent;
 }
 .theme-toggle {
     width: 32px;
@@ -572,16 +545,16 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
     .gradio-container { padding: 4px; }
     .gr-row { flex-direction: column; gap: 8px; }
     .gr-column { width: 100%; min-width: 0; margin-bottom: 8px; }
-    input, textarea, .gr-textbox input, .gr-textbox textarea { 
-        font-size: 14px; 
-        padding: 8px; 
-        min-height: 40px; 
-        border-radius: 4px; 
+    input, textarea, .gr-textbox input, .gr-textbox textarea {
+        font-size: 14px;
+        padding: 8px;
+        min-height: 40px;
+        border-radius: 4px;
     }
-    button, .gr-button { 
-        min-height: 40px; 
-        padding: 8px 12px; 
-        font-size: 14px; 
+    button, .gr-button {
+        min-height: 40px;
+        padding: 8px 12px;
+        font-size: 14px;
     }
     .gr-chatbot, .chatbot { min-height: 50vh; }
     .gr-video, .video-container { max-width: 100%; height: auto; }
@@ -596,6 +569,45 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
 
 # Create Gradio interface
 with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
+    gr.HTML("""
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const baseVidParent = document.querySelector('#base_video');
+        if (baseVidParent) {
+            baseVidParent.addEventListener('wheel', (e) => {
+                const vid = e.currentTarget.querySelector('video');
+                if (vid) {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                    vid.currentTime = Math.max(0, vid.currentTime + delta);
+                }
+            });
+        }
+        const ghostVidParent = document.querySelector('#ghost_video');
+        if (ghostVidParent) {
+            ghostVidParent.addEventListener('wheel', (e) => {
+                const vid = e.currentTarget.querySelector('video');
+                if (vid) {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                    vid.currentTime = Math.max(0, vid.currentTime + delta);
+                }
+            });
+        }
+        document.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            if (e.target.tagName.match(/^(INPUT|TEXTAREA)$/)) return;
+            if (key === 'f') {
+                const button = document.querySelector('#base_set_button');
+                if (button) button.click();
+            } else if (key === 'g') {
+                const button = document.querySelector('#ghost_set_button');
+                if (button) button.click();
+            }
+        });
+    });
+    </script>
+    """)
     with gr.Row():
         with gr.Column(scale=9):
             gr.Markdown(
@@ -607,7 +619,6 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
                 document.body.classList.toggle('light');
                 return null;
             }""")
-
     with gr.Tab("Code"):
         chatbot = gr.Chatbot(height="60vh")
         with gr.Row(elem_classes=["input-container"]):
@@ -625,12 +636,13 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
             inputs=[textbox, chatbot, model_dropdown, file_upload],
             outputs=[chatbot, textbox, file_upload]
         )
-
     with gr.Tab("Video"):
         gr.Markdown(
-            f"**Note**: Maximum file size per video is {MAX_FILE_SIZE_GB}GB. "
-            f"Duration must be a positive number or empty. Frame skip (1 to {MAX_FRAME_SKIP}) and resolution scale (0.1 to 1.0) can speed up rendering. "
-            "Start times and duration in HH:MM:SS.mmm format."
+            f"""**Note**: Maximum file size per video is {MAX_FILE_SIZE_GB}GB. 
+            Duration must be a positive number or empty. Frame skip (1 to {MAX_FRAME_SKIP}) and resolution scale (0.1 to 1.0) can speed up rendering. 
+            Start times and duration in HH:MM:SS.mmm format. 
+            Use mouse wheel to scroll videos for precise time selection. 
+            Press 'f' to set Base Start time or 'g' to set Ghost Start time from current position."""
         )
         with gr.Row():
             base_upload = gr.Video(label="Base Video", interactive=True, elem_id="base_video")
@@ -638,10 +650,10 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
         with gr.Row():
             with gr.Column():
                 base_start = gr.Textbox(value="00:00:00.000", label="Base Start (HH:MM:SS.mmm)")
-                set_base_start = gr.Button("Set from Current Position")
+                set_base_start = gr.Button("Set from Current Position", elem_id="base_set_button")
             with gr.Column():
                 ghost_start = gr.Textbox(value="00:00:00.000", label="Ghost Start (HH:MM:SS.mmm)")
-                set_ghost_start = gr.Button("Set from Current Position")
+                set_ghost_start = gr.Button("Set from Current Position", elem_id="ghost_set_button")
         with gr.Row():
             alpha_slider = gr.Slider(ALPHA_MIN, ALPHA_MAX, value=0.5, label="Opacity")
             duration = gr.Textbox(value="", label="Duration (HH:MM:SS.mmm, optional)")
@@ -651,7 +663,6 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
         output_video = gr.Video(label="Output Video")
         save_location = gr.Textbox(label="Save Location", interactive=False)
         status_output = gr.Textbox(label="Status", interactive=False)
-
         set_base_start.click(fn=None, inputs=[], outputs=base_start, js=get_current_time_js("base_video"))
         set_ghost_start.click(fn=None, inputs=[], outputs=ghost_start, js=get_current_time_js("ghost_video"))
         process_btn.click(
@@ -667,13 +678,10 @@ if __name__ == "__main__":
         if not MIN_PORT <= port <= MAX_PORT:
             logger.warning(f"Invalid port {port}, using default port {DEFAULT_PORT}")
             port = DEFAULT_PORT
-
         if not XAI_API_KEY:
             logger.warning("XAI_API_KEY not properly configured. AI functionality will be limited.")
-
         logger.info(f"Starting Gradio app on port {port}")
         logger.info("API client status: %s", "Connected" if client else "Not connected")
-
         demo.launch(
             server_name="0.0.0.0",
             server_port=port,
