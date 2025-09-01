@@ -184,7 +184,7 @@ def overlay_videos(
     duration_sec: Optional[float],
     frame_skip: int = DEFAULT_FRAME_SKIP,
     resolution_scale: float = DEFAULT_RESOLUTION_SCALE,
-    progress: gr.Progress = None
+    progress = None
 ) -> tuple[Optional[str], str]:
     """Overlay two videos with customizable parameters, progress tracking, and multithreading"""
     try:
@@ -305,7 +305,7 @@ def process_video_overlay(
     duration: Optional[float],
     frame_skip: int,
     resolution_scale: float,
-    progress: gr.Progress = gr.Progress()
+    progress = gr.Progress()
 ) -> tuple[Optional[str], Optional[str], str]:
     """Process video overlay with user inputs and progress tracking"""
     logger.info(f"Received inputs: base_upload={base_upload}, ghost_upload={ghost_upload}, alpha={alpha}, base_start={base_start}, ghost_start={ghost_start}, duration={duration}, frame_skip={frame_skip}, resolution_scale={resolution_scale}")
@@ -521,7 +521,6 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
             frame_skip = gr.Number(value=DEFAULT_FRAME_SKIP, label="Frame Skip", minimum=1, step=1, precision=0)
             resolution_scale = gr.Slider(0.1, 1.0, value=DEFAULT_RESOLUTION_SCALE, label="Resolution Scale")
         process_btn = gr.Button("Process")
-        progress_bar = gr.Progress(label="Rendering Progress")
         output_video = gr.Video(label="Output Video")
         save_location = gr.Textbox(label="Save Location", interactive=False)
         status_output = gr.Textbox(label="Status", interactive=False)
@@ -529,7 +528,8 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
         process_btn.click(
             fn=process_video_overlay,
             inputs=[base_upload, ghost_upload, alpha_slider, base_start, ghost_start, duration, frame_skip, resolution_scale],
-            outputs=[output_video, save_location, status_output]
+            outputs=[output_video, save_location, status_output],
+            show_progress="full"
         )
 
 if __name__ == "__main__":
