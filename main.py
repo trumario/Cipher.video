@@ -36,7 +36,6 @@ PROGRESS_UPDATE_INTERVAL = 100
 SUPPORTED_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv'}
 SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
 MSEC_PER_SEC = 1000
-MODELS = ["grok-code-fast-1", "grok-4-0709"]
 URL_MAX_LENGTH = 2048
 QUERY_MAX_LENGTH = 1024
 TIME_MULTIPLIERS = [1, 60, 3600]
@@ -145,35 +144,18 @@ def query_grok_streaming(
 
 def respond(
     message: str,
-    chat_history: List[Tuple[str, str]],
-    model: str,
-    file_path: Optional[str]
-) -> Generator[Tuple[List[Tuple[str, str]], str, Optional[str]], None, None]:
-    """Handle chat response with file upload support"""
-    image_url = None
-    if file_path:
-        if not validate_file(file_path, SUPPORTED_IMAGE_EXTENSIONS, is_video=False):
-            chat_history.append((message, f"Error: Invalid file or exceeds the {MAX_FILE_SIZE_GB}GB limit."))
-            yield chat_history, message, file_path
-            return
-        try:
-            ext = Path(file_path).suffix.lower()[1:]
-            with open(file_path, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode('utf-8')
-            image_url = f"data:image/{ext};base64,{b64}"
-        except Exception as e:
-            chat_history.append((message, f"Error processing file: {str(e)}"))
-            yield chat_history, message, file_path
-            return
-    if not image_url:
-        image_url = extract_image_url(message)
+    chat_history: List[Tuple[str, str]]
+) -> Generator[Tuple[List[Tuple[str, str]], str], None, None]:
+    """Handle chat response"""
+    image_url = extract_image_url(message)
+    model = VISION_MODEL if image_url else DEFAULT_MODEL
     bot_message = ""
     new_history = chat_history + [(message, bot_message)]
-    yield new_history, "", None
+    yield new_history, ""
     for delta in query_grok_streaming(message, [(h, a) for h, a in chat_history], model=model, image_url=image_url):
         bot_message += delta
         new_history[-1] = (message, bot_message)
-        yield new_history, "", None
+        yield new_history, ""
 
 def validate_file(file_path: str, supported_extensions: set, is_video: bool = True) -> bool:
     """Validate that the file path exists, is accessible, has supported extension, and does not exceed size limit"""
@@ -446,7 +428,7 @@ input, textarea, .gr-textbox input, .gr-textbox textarea {
     color: var(--text-color);
     border: 1px solid var(--border-color);
     border-radius: 4px;
-    font-size: 14px;
+    font-size: 16px;
     padding: 8px;
     box-sizing: border-box;
     width: 100%;
@@ -457,7 +439,7 @@ button, .gr-button {
     border: 1px solid var(--border-color);
     border-radius: 4px;
     padding: 6px 12px;
-    font-size: 14px;
+    font-size: 16px;
     cursor: pointer;
     transition: background-color 0.2s ease;
 }
@@ -526,28 +508,6 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
     border-radius: 4px;
     padding: 4px 8px;
 }
-.model-select {
-    background-color: var(--input-bg);
-    color: var(--text-color);
-    border: none;
-    font-size: 14px;
-    padding: 4px;
-    cursor: pointer;
-}
-.model-select:focus {
-    outline: none;
-}
-.file-upload-btn {
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-}
-.file-upload-btn input[type="file"] {
-    display: none;
-}
 .submit-btn {
     width: 32px;
     height: 32px;
@@ -562,7 +522,7 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
     .gr-row { flex-direction: column; gap: 8px; }
     .gr-column { width: 100%; min-width: 0; margin-bottom: 8px; }
     input, textarea, .gr-textbox input, .gr-textbox textarea {
-        font-size: 14px;
+        font-size: 16px;
         padding: 8px;
         min-height: 40px;
         border-radius: 4px;
@@ -570,7 +530,7 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
     button, .gr-button {
         min-height: 40px;
         padding: 8px 12px;
-        font-size: 14px;
+        font-size: 16px;
     }
     .gr-chatbot, .chatbot { min-height: 50vh; }
     .gr-video, .video-container { max-width: 100%; height: auto; }
@@ -642,19 +602,12 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
     with gr.Tab("Code"):
         chatbot = gr.Chatbot(height="60vh")
         with gr.Row(elem_classes=["input-container"]):
-            model_dropdown = gr.Dropdown(choices=MODELS, value=DEFAULT_MODEL, label=None, elem_classes=["model-select"], container=False)
-            file_upload = gr.File(label=None, file_types=list(SUPPORTED_IMAGE_EXTENSIONS), elem_classes=["file-upload-btn"], container=False)
-            textbox = gr.Textbox(placeholder="Enter code or image URL...", show_label=False, container=False, scale=8)
+            textbox = gr.Textbox(placeholder="Enter code or image URL...", show_label=False, container=False, scale=10, lines=5)
             submit_btn = gr.Button("↑", elem_classes=["submit-btn"])
         submit_btn.click(
             respond,
-            inputs=[textbox, chatbot, model_dropdown, file_upload],
-            outputs=[chatbot, textbox, file_upload]
-        )
-        textbox.submit(
-            respond,
-            inputs=[textbox, chatbot, model_dropdown, file_upload],
-            outputs=[chatbot, textbox, file_upload]
+            inputs=[textbox, chatbot],
+            outputs=[chatbot, textbox]
         )
     with gr.Tab("Video"):
         gr.Markdown(
