@@ -33,6 +33,7 @@ MAX_FRAME_SKIP = 10
 DEFAULT_RESOLUTION_SCALE = 1.0
 PROGRESS_UPDATE_INTERVAL = 100
 SUPPORTED_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv'}
+SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
 MSEC_PER_SEC = 1000
 MODELS = ["grok-code-fast-1", "grok-4-0709"]
 
@@ -69,7 +70,7 @@ def extract_image_url(message: str) -> Optional[str]:
 
 def query_grok_streaming(
     user_input: str,
-    history: Optional[list] = None,
+    history: Optional[List[Tuple[str, str]]] = None,
     model: str = DEFAULT_MODEL,
     image_url: Optional[str] = None
 ) -> Generator[str, None, None]:
@@ -130,16 +131,25 @@ def query_grok_streaming(
         yield f"Error communicating with Grok API: {e}"
         return
 
-def respond(message: str, chat_history: list, model: str, file_path: Optional[str]):
+def respond(
+    message: str,
+    chat_history: List[Tuple[str, str]],
+    model: str,
+    file_path: Optional[str]
+) -> Generator[Tuple[List[Tuple[str, str]], str, Optional[str]], None, None]:
     """Handle chat response with file upload support"""
     image_url = None
     if file_path:
+        if not validate_file_size(file_path):
+            chat_history.append((message, f"Error: File exceeds the {MAX_FILE_SIZE_GB}GB limit."))
+            yield chat_history, message, file_path
+            return
         try:
-            ext = os.path.splitext(file_path)[1][1:].lower()
-            if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in SUPPORTED_IMAGE_EXTENSIONS:
                 with open(file_path, "rb") as f:
                     b64 = base64.b64encode(f.read()).decode('utf-8')
-                image_url = f"data:image/{ext};base64,{b64}"
+                image_url = f"data:image/{ext[1:]};base64,{b64}"
             else:
                 chat_history.append((message, "Unsupported file type. Only images are supported."))
                 yield chat_history, message, file_path
@@ -173,7 +183,7 @@ def validate_file_size(file_path: str) -> bool:
         logger.error(f"Error validating file size for {file_path}: {e}")
         return False
 
-def validate_file_path(file_path: str) -> bool:
+def validate_file_path(file_path: str, is_video: bool = True) -> bool:
     """Validate that the file path exists, is accessible, and has supported extension"""
     try:
         if not file_path or not isinstance(file_path, str):
@@ -182,8 +192,9 @@ def validate_file_path(file_path: str) -> bool:
             logger.error(f"File {file_path} does not exist or is not accessible")
             return False
         ext = os.path.splitext(file_path)[1].lower()
-        if ext not in SUPPORTED_VIDEO_EXTENSIONS:
-            logger.error(f"File {file_path} has unsupported extension {ext}. Supported: {SUPPORTED_VIDEO_EXTENSIONS}")
+        supported = SUPPORTED_VIDEO_EXTENSIONS if is_video else SUPPORTED_IMAGE_EXTENSIONS
+        if ext not in supported:
+            logger.error(f"File {file_path} has unsupported extension {ext}. Supported: {supported}")
             return False
         return True
     except Exception as e:
@@ -284,7 +295,7 @@ def overlay_videos(
                         frame_base = cv2.resize(frame_base, (width, height), interpolation=cv2.INTER_AREA)
                     batch_frames.append((frame_base, frame_ghost))
                     for _ in range(frame_skip - 1):
-                        if not cap_base.read() or not cap_ghost.read():
+                        if not cap_base.read()[0] or not cap_ghost.read()[0]:
                             break
                 if not batch_frames:
                     break
@@ -314,8 +325,8 @@ def overlay_videos(
             out.release()
 
 def process_video_overlay(
-    base_upload: str,
-    ghost_upload: str,
+    base_upload: Optional[str],
+    ghost_upload: Optional[str],
     alpha: float,
     base_start: float,
     ghost_start: float,
@@ -351,7 +362,7 @@ def process_video_overlay(
     logger.info(f"Overlay result: path={result_path}, message={status_msg}")
     return result_path, output_path, status_msg
 
-# Custom CSS for UI with progress bar styling
+# Custom CSS for minimalistic UI
 CUSTOM_CSS = """
 meta[name="viewport"] { content: "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"; }
 :root {
@@ -410,9 +421,9 @@ input, textarea, .gr-textbox input, .gr-textbox textarea {
     background-color: var(--input-bg);
     color: var(--text-color);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
-    font-size: 16px;
-    padding: 12px;
+    border-radius: 4px;
+    font-size: 14px;
+    padding: 8px;
     box-sizing: border-box;
     width: 100%;
 }
@@ -420,9 +431,9 @@ button, .gr-button {
     background-color: var(--button-bg);
     color: var(--text-color);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
-    padding: 10px 16px;
-    font-size: 16px;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 14px;
     cursor: pointer;
     transition: background-color 0.2s ease;
 }
@@ -430,27 +441,39 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
 .gr-chatbot, .chatbot {
     background-color: var(--input-bg);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 4px;
     flex: 1;
-    min-height: 300px;
+    min-height: 200px;
+    max-height: 70vh;
     overflow-y: auto;
 }
-.gr-chatbot .message, .chatbot .message { background-color: transparent; color: var(--text-color); }
+.gr-chatbot .message, .chatbot .message { 
+    background-color: transparent; 
+    color: var(--text-color); 
+    padding: 8px;
+    margin: 4px;
+}
 .gr-video, .video-container {
     background-color: var(--input-bg);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 4px;
     width: 100%;
     height: auto;
 }
-.gr-slider input[type="range"] { background-color: transparent; accent-color: var(--accent-color); }
-.gr-markdown, .gr-markdown h1, .gr-markdown h2, .gr-markdown h3 { color: var(--text-color); background-color: transparent; }
+.gr-slider input[type="range"] { 
+    background-color: transparent; 
+    accent-color: var(--accent-color); 
+}
+.gr-markdown, .gr-markdown h1, .gr-markdown h2, .gr-markdown h3 { 
+    color: var(--text-color); 
+    background-color: transparent; 
+}
 .theme-toggle {
-    width: 40px;
-    height: 40px;
-    padding: 8px;
-    font-size: 18px;
-    border-radius: 8px;
+    width: 32px;
+    height: 32px;
+    padding: 6px;
+    font-size: 16px;
+    border-radius: 4px;
     background-color: var(--button-bg);
     color: var(--text-color);
     border: 1px solid var(--border-color);
@@ -458,8 +481,8 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
 .gr-progress {
     background-color: var(--progress-bg);
     border-radius: 4px;
-    height: 20px;
-    margin: 8px 0;
+    height: 16px;
+    margin: 4px 0;
 }
 .gr-progress .progress-bar {
     background-color: var(--progress-fill);
@@ -467,19 +490,68 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
     border-radius: 4px;
     transition: width 0.2s ease;
 }
+.input-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+.model-select {
+    background-color: var(--input-bg);
+    color: var(--text-color);
+    border: none;
+    font-size: 14px;
+    padding: 4px;
+    cursor: pointer;
+}
+.model-select:focus {
+    outline: none;
+}
+.file-upload-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+.file-upload-btn input[type="file"] {
+    display: none;
+}
+.submit-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
 @media (max-width: 768px) {
     html, body { -webkit-text-size-adjust: none; touch-action: manipulation; }
-    .gradio-container { padding: 8px; }
-    .gr-row { flex-direction: column; gap: 12px; }
-    .gr-column { width: 100%; min-width: 0; margin-bottom: 12px; }
-    input, textarea, .gr-textbox input, .gr-textbox textarea { font-size: 16px; padding: 14px; min-height: 48px; border-radius: 8px; }
-    button, .gr-button { min-height: 48px; padding: 12px 16px; font-size: 16px; }
+    .gradio-container { padding: 4px; }
+    .gr-row { flex-direction: column; gap: 8px; }
+    .gr-column { width: 100%; min-width: 0; margin-bottom: 8px; }
+    input, textarea, .gr-textbox input, .gr-textbox textarea { 
+        font-size: 14px; 
+        padding: 8px; 
+        min-height: 40px; 
+        border-radius: 4px; 
+    }
+    button, .gr-button { 
+        min-height: 40px; 
+        padding: 8px 12px; 
+        font-size: 14px; 
+    }
     .gr-chatbot, .chatbot { min-height: 50vh; }
     .gr-video, .video-container { max-width: 100%; height: auto; }
+    .input-container { gap: 4px; padding: 2px 4px; }
 }
 @media (min-width: 769px) {
-    .gradio-container { padding: 16px; }
-    .gr-chatbot, .chatbot { min-height: 70vh; }
+    .gradio-container { padding: 8px; }
+    .gr-chatbot, .chatbot { min-height: 60vh; }
 }
 .emoji, .fun-icon { display: none; }
 """
@@ -499,13 +571,12 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
             }""")
 
     with gr.Tab("Code"):
-        chatbot = gr.Chatbot(height=500)
-        with gr.Row():
-            model_dropdown = gr.Dropdown(choices=MODELS, value=DEFAULT_MODEL, label="Select Model")
-            file_upload = gr.File(label="Upload Image", file_types=[".jpg", ".jpeg", ".png", ".gif", ".webp"])
-        with gr.Row():
-            textbox = gr.Textbox(placeholder="Enter code or image URL...", show_label=False, container=False)
-            submit_btn = gr.Button("↑", variant="primary")
+        chatbot = gr.Chatbot(height="60vh")
+        with gr.Row(elem_classes=["input-container"]):
+            model_dropdown = gr.Dropdown(choices=MODELS, value=DEFAULT_MODEL, label=None, elem_classes=["model-select"], container=False)
+            file_upload = gr.File(label=None, file_types=list(SUPPORTED_IMAGE_EXTENSIONS), elem_classes=["file-upload-btn"], container=False)
+            textbox = gr.Textbox(placeholder="Enter code or image URL...", show_label=False, container=False, scale=8)
+            submit_btn = gr.Button("↑", elem_classes=["submit-btn"])
         submit_btn.click(
             respond,
             inputs=[textbox, chatbot, model_dropdown, file_upload],
@@ -546,12 +617,12 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
 
 if __name__ == "__main__":
     try:
-        port = int(os.getenv("PORT", DEFAULT_PORT))
+        port = int(os.getenv("PORT", str(DEFAULT_PORT)))
         if not MIN_PORT <= port <= MAX_PORT:
             logger.warning(f"Invalid port {port}, using default port {DEFAULT_PORT}")
             port = DEFAULT_PORT
 
-        if not XAI_API_KEY or XAI_API_KEY == "your_xai_api_key_here":
+        if not XAI_API_KEY:
             logger.warning("XAI_API_KEY not properly configured. AI functionality will be limited.")
 
         logger.info(f"Starting Gradio app on port {port}")
