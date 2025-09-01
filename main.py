@@ -19,15 +19,15 @@ XAI_API_BASE_URL = "https://api.x.ai/v1"
 DEFAULT_MODEL = "grok-code-fast-1"
 VISION_MODEL = "grok-4-0709"
 DEFAULT_PORT = 5000
-MAX_PORT = 65535
 MIN_PORT = 1
+MAX_PORT = 65535
 MAX_FILE_SIZE_GB = 10
 MAX_THREADS = min(os.cpu_count() or 4, 20)
 ALPHA_MIN = 0.1
 ALPHA_MAX = 1.0
 MAX_TOKENS = 2000
 TEMPERATURE = 0.7
-MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_GB * 1024 * 1024 * 1024
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_GB * 1024**3
 DEFAULT_FRAME_SKIP = 1
 MAX_FRAME_SKIP = 10
 DEFAULT_RESOLUTION_SCALE = 1.0
@@ -36,6 +36,9 @@ SUPPORTED_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv'}
 SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
 MSEC_PER_SEC = 1000
 MODELS = ["grok-code-fast-1", "grok-4-0709"]
+URL_MAX_LENGTH = 2048
+QUERY_MAX_LENGTH = 1024
+TIME_MULTIPLIERS = [1, 60, 3600]
 
 # Configuration - Load API key
 XAI_API_KEY = os.getenv("XAI_API_KEY")
@@ -62,7 +65,7 @@ def extract_image_url(message: str) -> Optional[str]:
     if not message or not isinstance(message, str):
         return None
     url_pattern = re.compile(
-        r'https?://[^\s<>"\'{}]{1,2048}\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>"\'{}]{0,1024})?',
+        rf'https?://[^\s<>"\'{{}}]{{1,{URL_MAX_LENGTH}}}\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>"\'{{}}]{{0,{QUERY_MAX_LENGTH}}})?',
         re.IGNORECASE
     )
     match = url_pattern.search(message)
@@ -98,7 +101,7 @@ def query_grok_streaming(
                     "General Best Practices:\n\n"
                     "Adhere to the standards and conventions of the programming language used in the input code.\n"
                     "Improve readability with consistent naming, indentation, and comments explaining non-obvious logic.\n"
-                    "Add error handling for all potential failure points (e.g., check return values of allocation or I/O functions).\n"
+                    "Add error handling for all potential failure points (e.g., check return values of allocation or I/O functions).\n\n"
                     "Ensure portability and avoid platform-specific assumptions unless necessary.\n"
                     "Make the code modular, testable, and maintainable.\n\n"
                     "Output Format:\n\n"
@@ -150,20 +153,15 @@ def respond(
     """Handle chat response with file upload support"""
     image_url = None
     if file_path:
-        if not validate_file_size(file_path):
-            chat_history.append((message, f"Error: File exceeds the {MAX_FILE_SIZE_GB}GB limit."))
+        if not validate_file(file_path, SUPPORTED_IMAGE_EXTENSIONS, is_video=False):
+            chat_history.append((message, f"Error: Invalid file or exceeds the {MAX_FILE_SIZE_GB}GB limit."))
             yield chat_history, message, file_path
             return
         try:
             ext = os.path.splitext(file_path)[1].lower()
-            if ext in SUPPORTED_IMAGE_EXTENSIONS:
-                with open(file_path, "rb") as f:
-                    b64 = base64.b64encode(f.read()).decode('utf-8')
-                image_url = f"data:image/{ext[1:]};base64,{b64}"
-            else:
-                chat_history.append((message, "Unsupported file type. Only images are supported."))
-                yield chat_history, message, file_path
-                return
+            with open(file_path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode('utf-8')
+            image_url = f"data:image/{ext[1:]};base64,{b64}"
         except Exception as e:
             chat_history.append((message, f"Error processing file: {str(e)}"))
             yield chat_history, message, file_path
@@ -181,35 +179,48 @@ def respond(
         new_history[-1] = (message, bot_message)
         yield new_history, "", None
 
-def validate_file_size(file_path: str) -> bool:
-    """Validate file size before processing"""
-    try:
-        file_size = os.path.getsize(file_path)
-        if file_size > MAX_FILE_SIZE_BYTES:
-            logger.error(f"File {file_path} size {file_size} bytes exceeds limit of {MAX_FILE_SIZE_BYTES} bytes")
-            return False
-        return True
-    except Exception as e:
-        logger.error(f"Error validating file size for {file_path}: {e}")
-        return False
-
-def validate_file_path(file_path: str, is_video: bool = True) -> bool:
-    """Validate that the file path exists, is accessible, and has supported extension"""
+def validate_file(file_path: str, supported_extensions: set, is_video: bool = True) -> bool:
+    """Validate that the file path exists, is accessible, has supported extension, and does not exceed size limit"""
     try:
         if not file_path or not isinstance(file_path, str):
             return False
         if not os.path.exists(file_path):
             logger.error(f"File {file_path} does not exist or is not accessible")
             return False
+        if not os.access(file_path, os.R_OK):
+            logger.error(f"File {file_path} is not readable")
+            return False
         ext = os.path.splitext(file_path)[1].lower()
-        supported = SUPPORTED_VIDEO_EXTENSIONS if is_video else SUPPORTED_IMAGE_EXTENSIONS
-        if ext not in supported:
-            logger.error(f"File {file_path} has unsupported extension {ext}. Supported: {supported}")
+        if ext not in supported_extensions:
+            logger.error(f"File {file_path} has unsupported extension {ext}. Supported: {supported_extensions}")
+            return False
+        file_size = os.path.getsize(file_path)
+        if file_size > MAX_FILE_SIZE_BYTES:
+            logger.error(f"File {file_path} size {file_size} bytes exceeds limit of {MAX_FILE_SIZE_BYTES} bytes")
             return False
         return True
     except Exception as e:
-        logger.error(f"Error validating file path {file_path}: {e}")
+        logger.error(f"Error validating file {file_path}: {e}")
         return False
+
+def parse_timecode(tc: str) -> float:
+    """Parse timecode string (HH:MM:SS.ms) to seconds as float"""
+    if not tc.strip():
+        return 0.0
+    try:
+        if '.' in tc:
+            time_part, ms_part = tc.split('.', 1)
+            ms = float(f"0.{ms_part.lstrip('0') or '0'}")
+        else:
+            time_part = tc
+            ms = 0.0
+        parts = time_part.split(':')
+        secs = 0.0
+        for i, part in enumerate(reversed(parts[:len(TIME_MULTIPLIERS)])):
+            secs += float(part) * TIME_MULTIPLIERS[i]
+        return secs + ms
+    except ValueError as e:
+        raise ValueError(f"Invalid timecode format: {tc}. Use HH:MM:SS.ms") from e
 
 def process_frame(
     frame_base: np.ndarray,
@@ -241,10 +252,8 @@ def overlay_videos(
     out = None
     try:
         # Validate inputs
-        if not validate_file_path(base_path) or not validate_file_path(ghost_path):
-            return None, "Error: One or both video files are invalid, inaccessible, or have unsupported formats."
-        if not validate_file_size(base_path) or not validate_file_size(ghost_path):
-            return None, f"Error: One or both video files exceed the {MAX_FILE_SIZE_GB}GB limit."
+        if not validate_file(base_path, SUPPORTED_VIDEO_EXTENSIONS) or not validate_file(ghost_path, SUPPORTED_VIDEO_EXTENSIONS):
+            return None, "Error: One or both video files are invalid, inaccessible, have unsupported formats, or exceed size limit."
         if not ALPHA_MIN <= alpha <= ALPHA_MAX:
             return None, f"Error: Alpha must be between {ALPHA_MIN} and {ALPHA_MAX}."
         if base_start_sec < 0:
@@ -338,9 +347,9 @@ def process_video_overlay(
     base_upload: Optional[str],
     ghost_upload: Optional[str],
     alpha: float,
-    base_start: float,
-    ghost_start: float,
-    duration: Optional[float],
+    base_start: str,
+    ghost_start: str,
+    duration: str,
     frame_skip: int,
     resolution_scale: float,
     progress: gr.Progress = gr.Progress()
@@ -351,19 +360,23 @@ def process_video_overlay(
     if not base_upload or not ghost_upload:
         return None, None, "Please upload both base and ghost videos."
 
+    try:
+        base_start_sec = parse_timecode(base_start)
+        ghost_start_sec = parse_timecode(ghost_start)
+        duration_sec = parse_timecode(duration) if duration else None
+    except ValueError as e:
+        return None, None, str(e)
+
     timestamp = int(time.time())
     output_path = f"overlay_output_{timestamp}.mp4"
-    base_start = max(0.0, float(base_start))
-    ghost_start = max(0.0, float(ghost_start))
-    duration_sec = float(duration) if duration is not None else None
 
     result_path, status_msg = overlay_videos(
         base_path=base_upload,
         ghost_path=ghost_upload,
         output_path=output_path,
         alpha=alpha,
-        base_start_sec=base_start,
-        ghost_start_sec=ghost_start,
+        base_start_sec=base_start_sec,
+        ghost_start_sec=ghost_start_sec,
         duration_sec=duration_sec,
         frame_skip=frame_skip,
         resolution_scale=resolution_scale,
@@ -371,6 +384,21 @@ def process_video_overlay(
     )
     logger.info(f"Overlay result: path={result_path}, message={status_msg}")
     return result_path, output_path, status_msg
+
+def get_current_time_js(video_id: str) -> str:
+    """Generate JS to get current video time and format as HH:MM:SS.mmm"""
+    return f"""() => {{
+        const vid = document.querySelector('#{video_id} video');
+        if (vid) {{
+            const t = vid.currentTime;
+            const hours = Math.floor(t / 3600).toString().padStart(2, '0');
+            const mins = Math.floor((t % 3600) / 60).toString().padStart(2, '0');
+            const secs = Math.floor(t % 60).toString().padStart(2, '0');
+            const ms = Math.floor((t % 1) * 1000).toString().padStart(3, '0');
+            return `${{hours}}:${{mins}}:${{secs}}.${{ms}}`;
+        }}
+        return '00:00:00.000';
+    }}"""
 
 # Custom CSS for minimalistic UI
 CUSTOM_CSS = """
@@ -601,16 +629,22 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
     with gr.Tab("Video"):
         gr.Markdown(
             f"**Note**: Maximum file size per video is {MAX_FILE_SIZE_GB}GB. "
-            f"Duration must be a positive number or empty. Frame skip (1 to {MAX_FRAME_SKIP}) and resolution scale (0.1 to 1.0) can speed up rendering."
+            f"Duration must be a positive number or empty. Frame skip (1 to {MAX_FRAME_SKIP}) and resolution scale (0.1 to 1.0) can speed up rendering. "
+            "Start times and duration in HH:MM:SS.mmm format."
         )
         with gr.Row():
-            base_upload = gr.Video(label="Base Video")
-            ghost_upload = gr.Video(label="Ghost Video")
+            base_upload = gr.Video(label="Base Video", interactive=True, elem_id="base_video")
+            ghost_upload = gr.Video(label="Ghost Video", interactive=True, elem_id="ghost_video")
+        with gr.Row():
+            with gr.Column():
+                base_start = gr.Textbox(value="00:00:00.000", label="Base Start (HH:MM:SS.mmm)")
+                set_base_start = gr.Button("Set from Current Position")
+            with gr.Column():
+                ghost_start = gr.Textbox(value="00:00:00.000", label="Ghost Start (HH:MM:SS.mmm)")
+                set_ghost_start = gr.Button("Set from Current Position")
         with gr.Row():
             alpha_slider = gr.Slider(ALPHA_MIN, ALPHA_MAX, value=0.5, label="Opacity")
-            base_start = gr.Number(value=0.0, label="Base Start (s)")
-            ghost_start = gr.Number(value=0.0, label="Ghost Start (s)")
-            duration = gr.Number(value=None, label="Duration (s)")
+            duration = gr.Textbox(value="", label="Duration (HH:MM:SS.mmm, optional)")
             frame_skip = gr.Number(value=DEFAULT_FRAME_SKIP, label="Frame Skip", minimum=1, maximum=MAX_FRAME_SKIP, step=1, precision=0)
             resolution_scale = gr.Slider(0.1, 1.0, value=DEFAULT_RESOLUTION_SCALE, label="Resolution Scale")
         process_btn = gr.Button("Process")
@@ -618,6 +652,8 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
         save_location = gr.Textbox(label="Save Location", interactive=False)
         status_output = gr.Textbox(label="Status", interactive=False)
 
+        set_base_start.click(fn=None, inputs=[], outputs=base_start, js=get_current_time_js("base_video"))
+        set_ghost_start.click(fn=None, inputs=[], outputs=ghost_start, js=get_current_time_js("ghost_video"))
         process_btn.click(
             fn=process_video_overlay,
             inputs=[base_upload, ghost_upload, alpha_slider, base_start, ghost_start, duration, frame_skip, resolution_scale],
@@ -645,7 +681,8 @@ if __name__ == "__main__":
             show_error=True,
             max_threads=MAX_THREADS,
             ssl_verify=False,
-            inbrowser=False
+            inbrowser=False,
+            allowed_paths=[os.getcwd()]  # Restrict to current directory to prevent path traversal
         )
     except ValueError as ve:
         logger.error(f"Configuration error: {ve}")
