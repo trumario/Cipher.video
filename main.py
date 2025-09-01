@@ -18,13 +18,13 @@ VISION_MODEL = "grok-4-0709"
 DEFAULT_PORT = 5000
 MAX_PORT = 65535
 MIN_PORT = 1
-MAX_FILE_SIZE_GB = 10  # Increased to 10GB
+MAX_FILE_SIZE_GB = 10
 MAX_THREADS = 20
 ALPHA_MIN = 0.1
 ALPHA_MAX = 1.0
 MAX_TOKENS = 2000
 TEMPERATURE = 0.7
-MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_GB * 1024 * 1024 * 1024  # GB to bytes
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_GB * 1024 * 1024 * 1024
 
 # Configuration - Load API key
 XAI_API_KEY = os.getenv("XAI_API_KEY")
@@ -144,6 +144,19 @@ def validate_file_size(file_path: str) -> bool:
         logger.error(f"Error validating file size for {file_path}: {e}")
         return False
 
+def validate_file_path(file_path: str) -> bool:
+    """Validate that the file path exists and is accessible"""
+    try:
+        if not file_path or not isinstance(file_path, str):
+            return False
+        if not os.path.exists(file_path):
+            logger.error(f"File {file_path} does not exist or is not accessible")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Error validating file path {file_path}: {e}")
+        return False
+
 def overlay_videos(
     base_path: str,
     ghost_path: str,
@@ -155,6 +168,10 @@ def overlay_videos(
 ) -> tuple[Optional[str], str]:
     """Overlay two videos with customizable parameters"""
     try:
+        # Validate file paths
+        if not validate_file_path(base_path) or not validate_file_path(ghost_path):
+            return None, "Error: One or both video files are invalid or inaccessible."
+
         # Validate file sizes
         if not validate_file_size(base_path) or not validate_file_size(ghost_path):
             return None, f"Error: One or both video files exceed the {MAX_FILE_SIZE_GB}GB limit."
@@ -167,9 +184,14 @@ def overlay_videos(
         cap_base.set(cv2.CAP_PROP_POS_MSEC, base_start_sec * 1000)
         cap_ghost.set(cv2.CAP_PROP_POS_MSEC, ghost_start_sec * 1000)
         fps = cap_base.get(cv2.CAP_PROP_FPS)
+        if fps <= 0:
+            return None, "Error: Invalid FPS value in base video."
         width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        max_frames = int(duration_sec * fps) if duration_sec else None
+        if width <= 0 or height <= 0:
+            return None, "Error: Invalid video dimensions."
+
+        max_frames = int(duration_sec * fps) if duration_sec is not None and duration_sec > 0 else None
 
         fourcc = cv2.VideoWriter.fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
@@ -196,6 +218,14 @@ def overlay_videos(
         return output_path, f"Successfully processed {processed_frames} frames. Video saved to: {output_path}"
     except Exception as e:
         return None, f"Video processing failed: {e}"
+    finally:
+        # Ensure resources are released even on error
+        if 'cap_base' in locals():
+            cap_base.release()
+        if 'cap_ghost' in locals():
+            cap_ghost.release()
+        if 'out' in locals():
+            out.release()
 
 def process_video_overlay(
     base_upload: str,
@@ -210,12 +240,18 @@ def process_video_overlay(
         return None, None, "Please upload both base and ghost videos."
     if not ALPHA_MIN <= alpha <= ALPHA_MAX:
         return None, None, f"Alpha value must be between {ALPHA_MIN} and {ALPHA_MAX}"
+    if not isinstance(base_start, (int, float)) or base_start < 0:
+        return None, None, "Base start time must be a non-negative number."
+    if not isinstance(ghost_start, (int, float)) or ghost_start < 0:
+        return None, None, "Ghost start time must be a non-negative number."
+    if duration is not None and not isinstance(duration, (int, float)):
+        return None, None, "Duration must be a number or empty."
 
     timestamp = int(time.time())
     output_path = f"overlay_output_{timestamp}.mp4"
-    base_start = max(0.0, base_start)
-    ghost_start = max(0.0, ghost_start)
-    duration = duration if duration and duration > 0 else None
+    base_start = max(0.0, float(base_start))
+    ghost_start = max(0.0, float(ghost_start))
+    duration_sec = float(duration) if duration is not None and duration > 0 else None
 
     result_path, status_msg = overlay_videos(
         base_path=base_upload,
@@ -224,7 +260,7 @@ def process_video_overlay(
         alpha=alpha,
         base_start_sec=base_start,
         ghost_start_sec=ghost_start,
-        duration_sec=duration
+        duration_sec=duration_sec
     )
     return result_path, output_path, status_msg
 
