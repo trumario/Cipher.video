@@ -1,7 +1,7 @@
 import os
 import re
 import cv2
-from openai import OpenAI
+from openai import OpenAI, APIError, AuthenticationError
 from typing import List, Optional, Tuple, Generator
 import time
 import logging
@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import gradio as gr
 import base64
+from pathlib import Path
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -39,6 +40,7 @@ MODELS = ["grok-code-fast-1", "grok-4-0709"]
 URL_MAX_LENGTH = 2048
 QUERY_MAX_LENGTH = 1024
 TIME_MULTIPLIERS = [1, 60, 3600]
+FPS_ASSUMPTION_FOR_JS = 30
 
 # Configuration - Load API key
 XAI_API_KEY = os.getenv("XAI_API_KEY")
@@ -53,8 +55,14 @@ def create_xai_client() -> Optional[OpenAI]:
         client.models.list()  # Validate API key
         logger.info("API key validation successful")
         return client
+    except AuthenticationError:
+        logger.error("Invalid API key")
+        return None
+    except APIError as e:
+        logger.error(f"API error: {e}")
+        return None
     except Exception as e:
-        logger.error(f"Error creating xAI client: {e}")
+        logger.error(f"Unexpected error creating xAI client: {e}")
         return None
 
 # Create xAI client
@@ -149,10 +157,10 @@ def respond(
             yield chat_history, message, file_path
             return
         try:
-            ext = os.path.splitext(file_path)[1].lower()
+            ext = Path(file_path).suffix.lower()[1:]
             with open(file_path, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode('utf-8')
-            image_url = f"data:image/{ext[1:]};base64,{b64}"
+            image_url = f"data:image/{ext};base64,{b64}"
         except Exception as e:
             chat_history.append((message, f"Error processing file: {str(e)}"))
             yield chat_history, message, file_path
@@ -170,19 +178,18 @@ def respond(
 def validate_file(file_path: str, supported_extensions: set, is_video: bool = True) -> bool:
     """Validate that the file path exists, is accessible, has supported extension, and does not exceed size limit"""
     try:
-        if not file_path or not isinstance(file_path, str):
-            return False
-        if not os.path.exists(file_path):
+        path = Path(file_path)
+        if not path.exists():
             logger.error(f"File {file_path} does not exist or is not accessible")
             return False
         if not os.access(file_path, os.R_OK):
             logger.error(f"File {file_path} is not readable")
             return False
-        ext = os.path.splitext(file_path)[1].lower()
+        ext = path.suffix.lower()
         if ext not in supported_extensions:
             logger.error(f"File {file_path} has unsupported extension {ext}. Supported: {supported_extensions}")
             return False
-        file_size = os.path.getsize(file_path)
+        file_size = path.stat().st_size
         if file_size > MAX_FILE_SIZE_BYTES:
             logger.error(f"File {file_path} size {file_size} bytes exceeds limit of {MAX_FILE_SIZE_BYTES} bytes")
             return False
@@ -267,14 +274,23 @@ def overlay_videos(
         height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT) * resolution_scale)
         if width <= 0 or height <= 0:
             return None, "Error: Invalid video dimensions."
-        # Calculate remaining frames and total output frames
-        start_frame = int(cap_base.get(cv2.CAP_PROP_POS_FRAMES))
-        total_frames = int(cap_base.get(cv2.CAP_PROP_FRAME_COUNT))
-        remaining_frames = total_frames - start_frame
-        if remaining_frames <= 0:
-            return None, "Error: No frames available after start time."
-        max_input_frames = int(duration_sec * fps) if duration_sec is not None else remaining_frames
-        max_input_frames = min(max_input_frames, remaining_frames)
+        # Calculate remaining frames and total output frames for base
+        base_start_frame = int(cap_base.get(cv2.CAP_PROP_POS_FRAMES))
+        base_total_frames = int(cap_base.get(cv2.CAP_PROP_FRAME_COUNT))
+        base_remaining_frames = base_total_frames - base_start_frame
+        if base_remaining_frames <= 0:
+            return None, "Error: No frames available after start time in base video."
+        # Calculate for ghost to ensure sufficient frames
+        ghost_start_frame = int(cap_ghost.get(cv2.CAP_PROP_POS_FRAMES))
+        ghost_total_frames = int(cap_ghost.get(cv2.CAP_PROP_FRAME_COUNT))
+        ghost_remaining_frames = ghost_total_frames - ghost_start_frame
+        if ghost_remaining_frames <= 0:
+            return None, "Error: No frames available after start time in ghost video."
+        max_input_frames = min(
+            base_remaining_frames,
+            ghost_remaining_frames,
+            int(duration_sec * fps) if duration_sec is not None else base_remaining_frames
+        )
         total_output_frames = max_input_frames // frame_skip
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps / frame_skip, (width, height))
@@ -355,7 +371,7 @@ def process_video_overlay(
         progress=progress
     )
     logger.info(f"Overlay result: path={result_path}, message={status_msg}")
-    return result_path, output_path, status_msg
+    return result_path, result_path, status_msg
 
 def get_current_time_js(video_id: str) -> str:
     """Generate JS to get current video time, format as HH:MM:SS.mmm"""
@@ -572,37 +588,41 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
     gr.HTML("""
     <script>
     document.addEventListener('DOMContentLoaded', () => {
-        const baseVidParent = document.querySelector('#base_video');
-        if (baseVidParent) {
-            baseVidParent.addEventListener('wheel', (e) => {
-                const vid = e.currentTarget.querySelector('video');
+        const videoIds = ['base_video', 'ghost_video', 'output_video'];
+        videoIds.forEach(videoId => {
+            const vidParent = document.querySelector(`#${videoId}`);
+            if (vidParent) {
+                const vid = vidParent.querySelector('video');
                 if (vid) {
-                    e.preventDefault();
-                    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-                    vid.currentTime = Math.max(0, vid.currentTime + delta);
+                    vidParent.addEventListener('keydown', (e) => {
+                        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                            e.preventDefault();
+                            const fps = vid.playbackRate * """ + str(FPS_ASSUMPTION_FOR_JS) + """; // Assume 30 FPS if unknown
+                            const frameTime = 1 / fps;
+                            const currentFrame = Math.round(vid.currentTime * fps);
+                            const newFrame = e.key === 'ArrowRight' ? currentFrame + 1 : currentFrame - 1;
+                            vid.currentTime = Math.max(0, newFrame * frameTime);
+                        }
+                    });
+                    vidParent.addEventListener('click', () => vid.focus());
                 }
-            });
-        }
-        const ghostVidParent = document.querySelector('#ghost_video');
-        if (ghostVidParent) {
-            ghostVidParent.addEventListener('wheel', (e) => {
-                const vid = e.currentTarget.querySelector('video');
-                if (vid) {
-                    e.preventDefault();
-                    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-                    vid.currentTime = Math.max(0, vid.currentTime + delta);
-                }
-            });
-        }
+            }
+        });
         document.addEventListener('keydown', (e) => {
-            const key = e.key.toLowerCase();
             if (e.target.tagName.match(/^(INPUT|TEXTAREA)$/)) return;
+            const key = e.key.toLowerCase();
             if (key === 'f') {
                 const button = document.querySelector('#base_set_button');
-                if (button) button.click();
+                if (button) {
+                    button.click();
+                    e.preventDefault();
+                }
             } else if (key === 'g') {
                 const button = document.querySelector('#ghost_set_button');
-                if (button) button.click();
+                if (button) {
+                    button.click();
+                    e.preventDefault();
+                }
             }
         });
     });
@@ -638,10 +658,10 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
         )
     with gr.Tab("Video"):
         gr.Markdown(
-            f"""**Note**: Maximum file size per video is {MAX_FILE_SIZE_GB}GB. 
-            Duration must be a positive number or empty. Frame skip (1 to {MAX_FRAME_SKIP}) and resolution scale (0.1 to 1.0) can speed up rendering. 
-            Start times and duration in HH:MM:SS.mmm format. 
-            Use mouse wheel to scroll videos for precise time selection. 
+            f"""**Note**: Maximum file size per video is {MAX_FILE_SIZE_GB}GB.
+            Duration must be a positive number or empty. Frame skip (1 to {MAX_FRAME_SKIP}) and resolution scale (0.1 to 1.0) can speed up rendering.
+            Start times and duration in HH:MM:SS.mmm format.
+            Use left/right arrow keys to scroll videos frame-by-frame after clicking to focus.
             Press 'f' to set Base Start time or 'g' to set Ghost Start time from current position."""
         )
         with gr.Row():
@@ -660,7 +680,7 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
             frame_skip = gr.Number(value=DEFAULT_FRAME_SKIP, label="Frame Skip", minimum=1, maximum=MAX_FRAME_SKIP, step=1, precision=0)
             resolution_scale = gr.Slider(0.1, 1.0, value=DEFAULT_RESOLUTION_SCALE, label="Resolution Scale")
         process_btn = gr.Button("Process")
-        output_video = gr.Video(label="Output Video")
+        output_video = gr.Video(label="Output Video", elem_id="output_video")
         save_location = gr.Textbox(label="Save Location", interactive=False)
         status_output = gr.Textbox(label="Status", interactive=False)
         set_base_start.click(fn=None, inputs=[], outputs=base_start, js=get_current_time_js("base_video"))
@@ -690,7 +710,7 @@ if __name__ == "__main__":
             max_threads=MAX_THREADS,
             ssl_verify=False,
             inbrowser=False,
-            allowed_paths=[os.getcwd()]  # Restrict to current directory to prevent path traversal
+            allowed_paths=[os.getcwd()]
         )
     except ValueError as ve:
         logger.error(f"Configuration error: {ve}")
