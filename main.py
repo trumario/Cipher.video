@@ -8,6 +8,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import gradio as gr
+import base64
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -33,6 +34,7 @@ DEFAULT_RESOLUTION_SCALE = 1.0
 PROGRESS_UPDATE_INTERVAL = 100
 SUPPORTED_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv'}
 MSEC_PER_SEC = 1000
+MODELS = ["grok-code-fast-1", "grok-4-0709"]
 
 # Configuration - Load API key
 XAI_API_KEY = os.getenv("XAI_API_KEY")
@@ -128,11 +130,36 @@ def query_grok_streaming(
         yield f"Error communicating with Grok API: {e}"
         return
 
-def chat_function(message: str, history: list) -> Generator[str, None, None]:
-    """Main chat function for Gradio interface with streaming support"""
-    image_url = extract_image_url(message)
-    for partial_response in query_grok_streaming(message, history, image_url=image_url):
-        yield partial_response
+def respond(message: str, chat_history: list, model: str, file_path: Optional[str]):
+    """Handle chat response with file upload support"""
+    image_url = None
+    if file_path:
+        try:
+            ext = os.path.splitext(file_path)[1][1:].lower()
+            if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+                with open(file_path, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode('utf-8')
+                image_url = f"data:image/{ext};base64,{b64}"
+            else:
+                chat_history.append((message, "Unsupported file type. Only images are supported."))
+                yield chat_history, message, file_path
+                return
+        except Exception as e:
+            chat_history.append((message, f"Error processing file: {str(e)}"))
+            yield chat_history, message, file_path
+            return
+
+    if not image_url:
+        image_url = extract_image_url(message)
+
+    bot_message = ""
+    new_history = chat_history + [(message, bot_message)]
+    yield new_history, "", None
+
+    for partial in query_grok_streaming(message, [(h, a) for h, a in chat_history], model=model, image_url=image_url):
+        bot_message = partial
+        new_history[-1] = (message, bot_message)
+        yield new_history, "", None
 
 def validate_file_size(file_path: str) -> bool:
     """Validate file size before processing"""
@@ -472,10 +499,22 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
             }""")
 
     with gr.Tab("Code"):
-        chat_interface = gr.ChatInterface(
-            fn=chat_function,
-            type="messages",
-            textbox=gr.Textbox(placeholder="Enter code or image URL...", container=False)
+        chatbot = gr.Chatbot(height=500)
+        with gr.Row():
+            model_dropdown = gr.Dropdown(choices=MODELS, value=DEFAULT_MODEL, label="Select Model")
+            file_upload = gr.File(label="Upload Image", file_types=[".jpg", ".jpeg", ".png", ".gif", ".webp"])
+        with gr.Row():
+            textbox = gr.Textbox(placeholder="Enter code or image URL...", show_label=False, container=False)
+            submit_btn = gr.Button("↑", variant="primary")
+        submit_btn.click(
+            respond,
+            inputs=[textbox, chatbot, model_dropdown, file_upload],
+            outputs=[chatbot, textbox, file_upload]
+        )
+        textbox.submit(
+            respond,
+            inputs=[textbox, chatbot, model_dropdown, file_upload],
+            outputs=[chatbot, textbox, file_upload]
         )
 
     with gr.Tab("Video"):
