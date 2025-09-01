@@ -1,13 +1,13 @@
 import os
 import re
 import cv2
-import gradio as gr
 from openai import OpenAI
 from typing import List, Optional, Tuple, Generator
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
+import gradio as gr
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -21,22 +21,21 @@ DEFAULT_PORT = 5000
 MAX_PORT = 65535
 MIN_PORT = 1
 MAX_FILE_SIZE_GB = 10
-MAX_THREADS = min(os.cpu_count() or 4, 20)  # Use CPU core count, capped at 20
+MAX_THREADS = min(os.cpu_count() or 4, 20)
 ALPHA_MIN = 0.1
 ALPHA_MAX = 1.0
 MAX_TOKENS = 2000
 TEMPERATURE = 0.7
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_GB * 1024 * 1024 * 1024
 DEFAULT_FRAME_SKIP = 1
-DEFAULT_RESOLUTION_SCALE = 1.0  # 1.0 = original, 0.5 = half resolution
-PROGRESS_UPDATE_INTERVAL = 100  # Update progress every 100 frames
+MAX_FRAME_SKIP = 10
+DEFAULT_RESOLUTION_SCALE = 1.0
+PROGRESS_UPDATE_INTERVAL = 100
+SUPPORTED_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv'}
+MSEC_PER_SEC = 1000
 
 # Configuration - Load API key
 XAI_API_KEY = os.getenv("XAI_API_KEY")
-
-def health_check() -> dict[str, float | str]:
-    """Simple health check endpoint for deployment"""
-    return {"status": "healthy", "timestamp": time.time(), "service": "grok-chat-agent"}
 
 def create_xai_client() -> Optional[OpenAI]:
     """Create xAI client with error handling"""
@@ -45,7 +44,7 @@ def create_xai_client() -> Optional[OpenAI]:
         return None
     try:
         client = OpenAI(base_url=XAI_API_BASE_URL, api_key=XAI_API_KEY)
-        client.models.list()
+        client.models.list()  # Validate API key
         logger.info("API key validation successful")
         return client
     except Exception as e:
@@ -129,13 +128,11 @@ def query_grok_streaming(
         yield f"Error communicating with Grok API: {e}"
         return
 
-def chat_function(message: str, history: list) -> str:
-    """Main chat function for Gradio interface"""
+def chat_function(message: str, history: list) -> Generator[str, None, None]:
+    """Main chat function for Gradio interface with streaming support"""
     image_url = extract_image_url(message)
-    full_response = ""
     for partial_response in query_grok_streaming(message, history, image_url=image_url):
-        full_response = partial_response
-    return full_response
+        yield partial_response
 
 def validate_file_size(file_path: str) -> bool:
     """Validate file size before processing"""
@@ -150,12 +147,16 @@ def validate_file_size(file_path: str) -> bool:
         return False
 
 def validate_file_path(file_path: str) -> bool:
-    """Validate that the file path exists and is accessible"""
+    """Validate that the file path exists, is accessible, and has supported extension"""
     try:
         if not file_path or not isinstance(file_path, str):
             return False
         if not os.path.exists(file_path):
             logger.error(f"File {file_path} does not exist or is not accessible")
+            return False
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext not in SUPPORTED_VIDEO_EXTENSIONS:
+            logger.error(f"File {file_path} has unsupported extension {ext}. Supported: {SUPPORTED_VIDEO_EXTENSIONS}")
             return False
         return True
     except Exception as e:
@@ -184,13 +185,16 @@ def overlay_videos(
     duration_sec: Optional[float],
     frame_skip: int = DEFAULT_FRAME_SKIP,
     resolution_scale: float = DEFAULT_RESOLUTION_SCALE,
-    progress = None
-) -> tuple[Optional[str], str]:
+    progress: Optional[gr.Progress] = None
+) -> Tuple[Optional[str], str]:
     """Overlay two videos with customizable parameters, progress tracking, and multithreading"""
+    cap_base = None
+    cap_ghost = None
+    out = None
     try:
         # Validate inputs
         if not validate_file_path(base_path) or not validate_file_path(ghost_path):
-            return None, "Error: One or both video files are invalid or inaccessible."
+            return None, "Error: One or both video files are invalid, inaccessible, or have unsupported formats."
         if not validate_file_size(base_path) or not validate_file_size(ghost_path):
             return None, f"Error: One or both video files exceed the {MAX_FILE_SIZE_GB}GB limit."
         if not ALPHA_MIN <= alpha <= ALPHA_MAX:
@@ -201,8 +205,8 @@ def overlay_videos(
             return None, "Error: Ghost start time must be non-negative."
         if duration_sec is not None and duration_sec <= 0:
             return None, "Error: Duration must be positive or empty."
-        if frame_skip < 1:
-            return None, "Error: Frame skip must be at least 1."
+        if frame_skip < 1 or frame_skip > MAX_FRAME_SKIP:
+            return None, f"Error: Frame skip must be between 1 and {MAX_FRAME_SKIP}."
         if not 0.1 <= resolution_scale <= 1.0:
             return None, "Error: Resolution scale must be between 0.1 and 1.0."
 
@@ -211,89 +215,75 @@ def overlay_videos(
         if not cap_base.isOpened() or not cap_ghost.isOpened():
             return None, "Error: Could not open one or both video files."
 
-        cap_base.set(cv2.CAP_PROP_POS_MSEC, base_start_sec * 1000)
-        cap_ghost.set(cv2.CAP_PROP_POS_MSEC, ghost_start_sec * 1000)
+        cap_base.set(cv2.CAP_PROP_POS_MSEC, base_start_sec * MSEC_PER_SEC)
+        cap_ghost.set(cv2.CAP_PROP_POS_MSEC, ghost_start_sec * MSEC_PER_SEC)
+
         fps = cap_base.get(cv2.CAP_PROP_FPS)
         if fps <= 0:
             return None, "Error: Invalid FPS value in base video."
+
         width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH) * resolution_scale)
         height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT) * resolution_scale)
         if width <= 0 or height <= 0:
             return None, "Error: Invalid video dimensions."
 
-        # Pre-check frame compatibility
-        ret_base, frame_base = cap_base.read()
-        ret_ghost, frame_ghost = cap_ghost.read()
-        if not ret_base or not ret_ghost:
-            return None, "Error: Could not read initial frames."
-        needs_resize = frame_ghost.shape[:2] != frame_base.shape[:2]
-        cap_base.set(cv2.CAP_PROP_POS_MSEC, base_start_sec * 1000)  # Reset position
-
+        # Calculate remaining frames and total output frames
+        start_frame = int(cap_base.get(cv2.CAP_PROP_POS_FRAMES))
         total_frames = int(cap_base.get(cv2.CAP_PROP_FRAME_COUNT))
-        max_frames = int(duration_sec * fps) if duration_sec is not None else total_frames
-        if max_frames is None or max_frames > total_frames:
-            max_frames = total_frames
-        max_frames = max_frames // frame_skip  # Adjust for frame skipping
+        remaining_frames = total_frames - start_frame
+        if remaining_frames <= 0:
+            return None, "Error: No frames available after start time."
 
-        fourcc = cv2.VideoWriter.fourcc(*'H264')  # Use H264 for faster encoding
+        max_input_frames = int(duration_sec * fps) if duration_sec is not None else remaining_frames
+        max_input_frames = min(max_input_frames, remaining_frames)
+        total_output_frames = max_input_frames // frame_skip
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps / frame_skip, (width, height))
         if not out.isOpened():
-            return None, "Error: Could not initialize video writer."
+            return None, "Error: Could not initialize video writer. Ensure OpenCV is built with FFmpeg support."
 
         processed_frames = 0
-        frame_buffer = []
         with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-            while cap_base.isOpened() and cap_ghost.isOpened():
-                if max_frames is not None and processed_frames >= max_frames:
-                    break
-                # Read frames with skipping
-                for _ in range(frame_skip):
+            while processed_frames < total_output_frames and cap_base.isOpened() and cap_ghost.isOpened():
+                batch_size = min(MAX_THREADS, total_output_frames - processed_frames)
+                batch_frames = []
+                for _ in range(batch_size):
                     ret_base, frame_base = cap_base.read()
                     ret_ghost, frame_ghost = cap_ghost.read()
                     if not ret_base or not ret_ghost:
                         break
-                if not ret_base or not ret_ghost:
+                    if resolution_scale != 1.0:
+                        frame_base = cv2.resize(frame_base, (width, height), interpolation=cv2.INTER_AREA)
+                    batch_frames.append((frame_base, frame_ghost))
+                    for _ in range(frame_skip - 1):
+                        if not cap_base.read() or not cap_ghost.read():
+                            break
+                if not batch_frames:
                     break
 
-                # Resize base frame if needed
-                if resolution_scale != 1.0:
-                    frame_base = cv2.resize(frame_base, (width, height), interpolation=cv2.INTER_AREA)
+                futures = [executor.submit(process_frame, fb, fg, width, height, alpha) for fb, fg in batch_frames]
+                for future in futures:
+                    blended = future.result()
+                    out.write(blended)
 
-                # Process frame in parallel
-                future = executor.submit(process_frame, frame_base, frame_ghost, width, height, alpha)
-                frame_buffer.append(future)
+                processed_frames += len(batch_frames)
+                if progress and total_output_frames > 0 and processed_frames % PROGRESS_UPDATE_INTERVAL == 0:
+                    progress(processed_frames / total_output_frames, desc=f"Processing {processed_frames}/{total_output_frames} frames")
 
-                # Write frames in batches to reduce I/O overhead
-                if len(frame_buffer) >= MAX_THREADS:
-                    for future in frame_buffer:
-                        blended = future.result()
-                        out.write(blended)
-                    processed_frames += len(frame_buffer)
-                    if progress and max_frames > 0 and processed_frames % PROGRESS_UPDATE_INTERVAL == 0:
-                        progress(processed_frames / max_frames, desc=f"Processing {processed_frames}/{max_frames} frames")
-                    frame_buffer = []
+        if progress and total_output_frames > 0:
+            progress(1.0, desc=f"Completed {processed_frames}/{total_output_frames} frames")
 
-        # Write remaining frames
-        for future in frame_buffer:
-            blended = future.result()
-            out.write(blended)
-        processed_frames += len(frame_buffer)
-        if progress and max_frames > 0:
-            progress(processed_frames / max_frames, desc=f"Processing {processed_frames}/{max_frames} frames")
-
-        cap_base.release()
-        cap_ghost.release()
-        out.release()
         return output_path, f"Successfully processed {processed_frames} frames. Video saved to: {output_path}"
     except Exception as e:
         logger.error(f"Overlay error: {e}")
         return None, f"Video processing failed: {e}"
     finally:
-        if 'cap_base' in locals():
+        if cap_base:
             cap_base.release()
-        if 'cap_ghost' in locals():
+        if cap_ghost:
             cap_ghost.release()
-        if 'out' in locals():
+        if out:
             out.release()
 
 def process_video_overlay(
@@ -305,36 +295,19 @@ def process_video_overlay(
     duration: Optional[float],
     frame_skip: int,
     resolution_scale: float,
-    progress = gr.Progress()
-) -> tuple[Optional[str], Optional[str], str]:
+    progress: gr.Progress = gr.Progress()
+) -> Tuple[Optional[str], Optional[str], str]:
     """Process video overlay with user inputs and progress tracking"""
     logger.info(f"Received inputs: base_upload={base_upload}, ghost_upload={ghost_upload}, alpha={alpha}, base_start={base_start}, ghost_start={ghost_start}, duration={duration}, frame_skip={frame_skip}, resolution_scale={resolution_scale}")
 
     if not base_upload or not ghost_upload:
         return None, None, "Please upload both base and ghost videos."
-    if not isinstance(alpha, (int, float)) or not ALPHA_MIN <= alpha <= ALPHA_MAX:
-        return None, None, f"Alpha value must be a number between {ALPHA_MIN} and {ALPHA_MAX}."
-    if not isinstance(base_start, (int, float)) or base_start < 0:
-        return None, None, "Base start time must be a non-negative number."
-    if not isinstance(ghost_start, (int, float)) or ghost_start < 0:
-        return None, None, "Ghost start time must be a non-negative number."
-    if duration is not None:
-        try:
-            duration = float(duration)
-            if duration <= 0:
-                return None, None, "Duration must be a positive number or empty."
-        except (TypeError, ValueError):
-            return None, None, "Duration must be a valid number or empty."
-    if not isinstance(frame_skip, int) or frame_skip < 1:
-        return None, None, "Frame skip must be a positive integer."
-    if not isinstance(resolution_scale, (int, float)) or not 0.1 <= resolution_scale <= 1.0:
-        return None, None, "Resolution scale must be a number between 0.1 and 1.0."
 
     timestamp = int(time.time())
     output_path = f"overlay_output_{timestamp}.mp4"
     base_start = max(0.0, float(base_start))
     ghost_start = max(0.0, float(ghost_start))
-    duration_sec = duration if duration is not None else None
+    duration_sec = float(duration) if duration is not None else None
 
     result_path, status_msg = overlay_videos(
         base_path=base_upload,
@@ -508,7 +481,7 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
     with gr.Tab("Video"):
         gr.Markdown(
             f"**Note**: Maximum file size per video is {MAX_FILE_SIZE_GB}GB. "
-            "Duration must be a positive number or empty. Frame skip (1 = all frames, 2 = every other frame, etc.) and resolution scale (0.1 to 1.0) can speed up rendering."
+            f"Duration must be a positive number or empty. Frame skip (1 to {MAX_FRAME_SKIP}) and resolution scale (0.1 to 1.0) can speed up rendering."
         )
         with gr.Row():
             base_upload = gr.Video(label="Base Video")
@@ -518,7 +491,7 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
             base_start = gr.Number(value=0.0, label="Base Start (s)")
             ghost_start = gr.Number(value=0.0, label="Ghost Start (s)")
             duration = gr.Number(value=None, label="Duration (s)")
-            frame_skip = gr.Number(value=DEFAULT_FRAME_SKIP, label="Frame Skip", minimum=1, step=1, precision=0)
+            frame_skip = gr.Number(value=DEFAULT_FRAME_SKIP, label="Frame Skip", minimum=1, maximum=MAX_FRAME_SKIP, step=1, precision=0)
             resolution_scale = gr.Slider(0.1, 1.0, value=DEFAULT_RESOLUTION_SCALE, label="Resolution Scale")
         process_btn = gr.Button("Process")
         output_video = gr.Video(label="Output Video")
@@ -544,7 +517,6 @@ if __name__ == "__main__":
 
         logger.info(f"Starting Gradio app on port {port}")
         logger.info("API client status: %s", "Connected" if client else "Not connected")
-        logger.info(f"Application health check available at: http://0.0.0.0:{port}/")
 
         demo.launch(
             server_name="0.0.0.0",
@@ -552,7 +524,6 @@ if __name__ == "__main__":
             share=False,
             show_error=True,
             max_threads=MAX_THREADS,
-            max_file_size=f"{MAX_FILE_SIZE_GB}gb",
             ssl_verify=False,
             inbrowser=False
         )
