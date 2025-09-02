@@ -10,6 +10,7 @@ import numpy as np
 import gradio as gr
 from pathlib import Path
 import uuid
+from urllib.parse import quote
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -156,7 +157,6 @@ def query_grok_streaming(
             if finish_reason != 'length':
                 break
             continuation = True
-            # Reset has_image for continuations
             has_image = False
     except Exception as e:
         logger.error(f"Error querying API: {e}")
@@ -361,17 +361,17 @@ def process_video_overlay(
     frame_skip: int,
     resolution_scale: float,
     progress: gr.Progress = gr.Progress()
-) -> Tuple[Optional[str], Optional[str], str]:
+) -> Tuple[Optional[str], Optional[str], Optional[str], str]:
     """Process video overlay with user inputs and progress tracking."""
     logger.info(f"Received inputs: base_upload={base_upload}, ghost_upload={ghost_upload}, alpha={alpha}, base_start={base_start}, ghost_start={ghost_start}, duration={duration}, frame_skip={frame_skip}, resolution_scale={resolution_scale}")
     if not base_upload or not ghost_upload:
-        return None, None, "Please upload both base and ghost videos."
+        return None, None, None, "Please upload both base and ghost videos."
     try:
         base_start_sec = parse_timecode(base_start)
         ghost_start_sec = parse_timecode(ghost_start)
         duration_sec = parse_timecode(duration) if duration else None
     except ValueError as e:
-        return None, None, str(e)
+        return None, None, None, str(e)
     timestamp = int(time.time())
     unique_id = uuid.uuid4().hex[:8]
     output_path = f"overlay_output_{timestamp}_{unique_id}.mp4"
@@ -387,8 +387,9 @@ def process_video_overlay(
         resolution_scale=resolution_scale,
         progress=progress
     )
+    download_path = result_path if result_path and os.path.exists(result_path) else None
     logger.info(f"Overlay result: path={result_path}, message={status_msg}")
-    return result_path, result_path, status_msg
+    return result_path, result_path, download_path, status_msg
 
 def get_current_time_js(video_id: str) -> str:
     """Generate JS to get current video time, format as HH:MM:SS.mmm with bounds checking."""
@@ -396,7 +397,7 @@ def get_current_time_js(video_id: str) -> str:
         const vid = document.querySelector('#{video_id} video');
         if (!vid) return '00:00:00.000';
         const t = vid.currentTime;
-        if (t < 0 || t > {MAX_VIDEO_DURATION_SECONDS}) return '00:00:00.000';  // Reasonable bounds for video duration
+        if (t < 0 || t > {MAX_VIDEO_DURATION_SECONDS}) return '00:00:00.000';
         const hours = Math.floor(t / 3600).toString().padStart(2, '0');
         const mins = Math.floor((t % 3600) / 60).toString().padStart(2, '0');
         const secs = Math.floor(t % 60).toString().padStart(2, '0');
@@ -670,14 +671,16 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
             resolution_scale = gr.Slider(0.1, 1.0, value=DEFAULT_RESOLUTION_SCALE, label="Resolution Scale")
         process_btn = gr.Button("Process")
         output_video = gr.Video(label="Output Video", elem_id="output_video")
-        save_location = gr.Textbox(label="Save Location", interactive=False)
+        with gr.Row():
+            save_location = gr.Textbox(label="Save Location", interactive=False)
+            download_btn = gr.File(label="Download Output Video", interactive=False, visible=False)
         status_output = gr.Textbox(label="Status", interactive=False)
         set_base_start.click(fn=None, inputs=[], outputs=base_start, js=get_current_time_js("base_video"))
         set_ghost_start.click(fn=None, inputs=[], outputs=ghost_start, js=get_current_time_js("ghost_video"))
         process_btn.click(
             fn=process_video_overlay,
             inputs=[base_upload, ghost_upload, alpha_slider, base_start, ghost_start, duration, frame_skip, resolution_scale],
-            outputs=[output_video, save_location, status_output],
+            outputs=[output_video, save_location, download_btn, status_output],
             show_progress="full"
         )
 
