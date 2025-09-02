@@ -40,6 +40,9 @@ URL_MAX_LENGTH = 2048
 QUERY_MAX_LENGTH = 1024
 FPS_ASSUMPTION_FOR_JS = 30
 MAX_VIDEO_DURATION_SECONDS = 86400  # 24 hours, reasonable upper bound for video duration
+ECC_ITERATIONS = 50
+ECC_EPSILON = 1e-10
+ECC_MOTION_MODEL = cv2.MOTION_HOMOGRAPHY
 
 # Configuration - Load API key securely
 XAI_API_KEY = os.getenv("XAI_API_KEY")
@@ -233,17 +236,54 @@ def parse_timecode(tc: str) -> float:
     except ValueError as e:
         raise ValueError(f"Invalid timecode format: {tc}. Use HH:MM:SS.ms") from e
 
-def process_frame(
+def align_frames(base_frame: np.ndarray, ghost_frame: np.ndarray) -> np.ndarray:
+    """Align ghost frame to base frame using ECC for pixel-perfect background sync."""
+    # Convert to grayscale for ECC
+    base_gray = cv2.cvtColor(base_frame, cv2.COLOR_BGR2GRAY)
+    ghost_gray = cv2.cvtColor(ghost_frame, cv2.COLOR_BGR2GRAY)
+
+    # Initialize warp matrix for homography
+    warp_matrix = np.eye(3, 3, dtype=np.float32)
+
+    # Find alignment transform
+    try:
+        _, warp_matrix = cv2.findTransformECC(
+            base_gray,
+            ghost_gray,
+            warp_matrix,
+            ECC_MOTION_MODEL,
+            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, ECC_ITERATIONS, ECC_EPSILON),
+            inputMask=None,
+            gaussFiltSize=5
+        )
+    except cv2.error as e:
+        logger.warning(f"ECC alignment failed: {e}. Falling back to no alignment.")
+        return ghost_frame
+
+    # Warp the ghost frame
+    height, width = base_frame.shape[:2]
+    aligned_ghost = cv2.warpPerspective(
+        ghost_frame,
+        warp_matrix,
+        (width, height),
+        flags=cv2.INTER_CUBIC + cv2.WARP_INVERSE_MAP,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(0, 0, 0)
+    )
+    return aligned_ghost
+
+def process_frame_task(
     frame_base: np.ndarray,
     frame_ghost: np.ndarray,
     width: int,
     height: int,
     alpha: float
 ) -> np.ndarray:
-    """Process a single frame pair for overlay with bounds checking."""
+    """Process a single frame pair: align and overlay."""
     if frame_ghost.shape[:2] != (height, width):
-        frame_ghost = cv2.resize(frame_ghost, (width, height), interpolation=cv2.INTER_AREA)
-    return cv2.addWeighted(frame_base, 1.0 - alpha, frame_ghost, alpha, 0)
+        frame_ghost = cv2.resize(frame_ghost, (width, height), interpolation=cv2.INTER_CUBIC)
+    aligned_ghost = align_frames(frame_base, frame_ghost)
+    return cv2.addWeighted(frame_base, 1.0 - alpha, aligned_ghost, alpha, 0)
 
 def overlay_videos(
     base_path: str,
@@ -257,7 +297,7 @@ def overlay_videos(
     resolution_scale: float = DEFAULT_RESOLUTION_SCALE,
     progress: Optional[gr.Progress] = None
 ) -> Tuple[Optional[str], str]:
-    """Overlay two videos with customizable parameters, progress tracking, and multithreading."""
+    """Overlay two videos with pixel-perfect alignment, progress tracking, and multithreading."""
     cap_base = None
     cap_ghost = None
     out = None
@@ -323,14 +363,14 @@ def overlay_videos(
                     if not ret_base or not ret_ghost:
                         break
                     if resolution_scale != 1.0:
-                        frame_base = cv2.resize(frame_base, (width, height), interpolation=cv2.INTER_AREA)
+                        frame_base = cv2.resize(frame_base, (width, height), interpolation=cv2.INTER_CUBIC)
                     batch_frames.append((frame_base, frame_ghost))
                     for _ in range(frame_skip - 1):
                         if not cap_base.read()[0] or not cap_ghost.read()[0]:
                             break
                 if not batch_frames:
                     break
-                futures = [executor.submit(process_frame, fb, fg, width, height, alpha) for fb, fg in batch_frames]
+                futures = [executor.submit(process_frame_task, fb, fg, width, height, alpha) for fb, fg in batch_frames]
                 for future in futures:
                     blended = future.result()
                     out.write(blended)
