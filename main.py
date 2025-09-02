@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import gradio as gr
 from pathlib import Path
+import uuid
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -36,27 +37,30 @@ SUPPORTED_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv'}
 MSEC_PER_SEC = 1000
 URL_MAX_LENGTH = 2048
 QUERY_MAX_LENGTH = 1024
-TIME_MULTIPLIERS = [1, 60, 3600]
 FPS_ASSUMPTION_FOR_JS = 30
+MAX_VIDEO_DURATION_SECONDS = 86400  # 24 hours, reasonable upper bound for video duration
 
-# Configuration - Load API key
+# Configuration - Load API key securely
 XAI_API_KEY = os.getenv("XAI_API_KEY")
+if XAI_API_KEY:
+    logger.info("API key loaded from environment.")
+else:
+    logger.warning("XAI_API_KEY not found. AI functionality is limited.")
 
 def create_xai_client() -> Optional[OpenAI]:
-    """Create xAI client with error handling"""
+    """Create xAI client with error handling and secure validation."""
     if not XAI_API_KEY:
-        logger.warning("XAI_API_KEY not found. AI functionality is limited.")
         return None
     try:
         client = OpenAI(base_url=XAI_API_BASE_URL, api_key=XAI_API_KEY)
-        client.models.list()  # Validate API key
-        logger.info("API key validation successful")
+        client.models.list()  # Validate API key without logging sensitive data
+        logger.info("API key validation successful.")
         return client
     except AuthenticationError:
-        logger.error("Invalid API key")
+        logger.error("Invalid API key provided.")
         return None
     except APIError as e:
-        logger.error(f"API error: {e}")
+        logger.error(f"API error during client creation: {e}")
         return None
     except Exception as e:
         logger.error(f"Unexpected error creating xAI client: {e}")
@@ -66,7 +70,7 @@ def create_xai_client() -> Optional[OpenAI]:
 client = create_xai_client()
 
 def extract_image_url(message: str) -> Optional[str]:
-    """Extract image URLs from user message"""
+    """Extract image URLs from user message with bounds checking."""
     if not message or not isinstance(message, str):
         return None
     url_pattern = re.compile(
@@ -82,7 +86,7 @@ def query_grok_streaming(
     model: str = DEFAULT_MODEL,
     image_url: Optional[str] = None
 ) -> Generator[str, None, None]:
-    """Query Grok API with streaming response support and automatic continuation if truncated"""
+    """Query Grok API with streaming response support and automatic continuation if truncated."""
     if history is None:
         history = []
     if client is None:
@@ -155,13 +159,17 @@ def query_grok_streaming(
             # Reset has_image for continuations
             has_image = False
     except Exception as e:
+        logger.error(f"Error querying API: {e}")
         yield f"Error querying API: {str(e)}"
 
 def respond(
     message: str,
     chat_history: List[Tuple[str, str]]
 ) -> Generator[Tuple[List[Tuple[str, str]], str], None, None]:
-    """Handle chat response"""
+    """Handle chat response with input validation."""
+    if not message.strip():
+        yield chat_history, ""
+        return
     image_url = extract_image_url(message)
     model = VISION_MODEL if image_url else DEFAULT_MODEL
     bot_message = ""
@@ -173,14 +181,14 @@ def respond(
         yield new_history, ""
 
 def validate_file(file_path: str, supported_extensions: set, is_video: bool = True) -> bool:
-    """Validate that the file path exists, is accessible, has supported extension, and does not exceed size limit"""
+    """Validate that the file path exists, is accessible, has supported extension, and does not exceed size limit."""
     try:
         path = Path(file_path)
         if not path.exists():
-            logger.error(f"File {file_path} does not exist or is not accessible")
+            logger.error(f"File {file_path} does not exist or is not accessible.")
             return False
         if not os.access(file_path, os.R_OK):
-            logger.error(f"File {file_path} is not readable")
+            logger.error(f"File {file_path} is not readable.")
             return False
         ext = path.suffix.lower()
         if ext not in supported_extensions:
@@ -188,7 +196,7 @@ def validate_file(file_path: str, supported_extensions: set, is_video: bool = Tr
             return False
         file_size = path.stat().st_size
         if file_size > MAX_FILE_SIZE_BYTES:
-            logger.error(f"File {file_path} size {file_size} bytes exceeds limit of {MAX_FILE_SIZE_BYTES} bytes")
+            logger.error(f"File {file_path} size {file_size} bytes exceeds limit of {MAX_FILE_SIZE_BYTES} bytes.")
             return False
         return True
     except Exception as e:
@@ -196,9 +204,11 @@ def validate_file(file_path: str, supported_extensions: set, is_video: bool = Tr
         return False
 
 def parse_timecode(tc: str) -> float:
-    """Parse timecode string (HH:MM:SS.ms) to seconds as float"""
+    """Parse timecode string (HH:MM:SS.ms) to seconds as float with bounds checking."""
     if not tc.strip():
         return 0.0
+    time_multipliers = [1, 60, 3600]  # seconds, minutes, hours
+    component_uppers = [60, 60, None]  # upper bounds for seconds, minutes, hours (None for no upper on hours)
     try:
         if '.' in tc:
             time_part, ms_part = tc.split('.', 1)
@@ -207,9 +217,18 @@ def parse_timecode(tc: str) -> float:
             time_part = tc
             ms = 0.0
         parts = time_part.split(':')
+        if len(parts) > len(time_multipliers):
+            raise ValueError("Too many time components.")
         secs = 0.0
-        for i, part in enumerate(reversed(parts[:len(TIME_MULTIPLIERS)])):
-            secs += float(part) * TIME_MULTIPLIERS[i]
+        reversed_parts = list(reversed(parts))
+        for i in range(len(reversed_parts)):
+            val = float(reversed_parts[i])
+            if val < 0:
+                raise ValueError("Negative time component value.")
+            upper = component_uppers[i]
+            if upper is not None and val >= upper:
+                raise ValueError(f"Time component exceeds limit: {val} >= {upper} for {'seconds' if i == 0 else 'minutes'}.")
+            secs += val * time_multipliers[i]
         return secs + ms
     except ValueError as e:
         raise ValueError(f"Invalid timecode format: {tc}. Use HH:MM:SS.ms") from e
@@ -221,7 +240,7 @@ def process_frame(
     height: int,
     alpha: float
 ) -> np.ndarray:
-    """Process a single frame pair for overlay"""
+    """Process a single frame pair for overlay with bounds checking."""
     if frame_ghost.shape[:2] != (height, width):
         frame_ghost = cv2.resize(frame_ghost, (width, height), interpolation=cv2.INTER_AREA)
     return cv2.addWeighted(frame_base, 1.0 - alpha, frame_ghost, alpha, 0)
@@ -238,7 +257,7 @@ def overlay_videos(
     resolution_scale: float = DEFAULT_RESOLUTION_SCALE,
     progress: Optional[gr.Progress] = None
 ) -> Tuple[Optional[str], str]:
-    """Overlay two videos with customizable parameters, progress tracking, and multithreading"""
+    """Overlay two videos with customizable parameters, progress tracking, and multithreading."""
     cap_base = None
     cap_ghost = None
     out = None
@@ -343,7 +362,7 @@ def process_video_overlay(
     resolution_scale: float,
     progress: gr.Progress = gr.Progress()
 ) -> Tuple[Optional[str], Optional[str], str]:
-    """Process video overlay with user inputs and progress tracking"""
+    """Process video overlay with user inputs and progress tracking."""
     logger.info(f"Received inputs: base_upload={base_upload}, ghost_upload={ghost_upload}, alpha={alpha}, base_start={base_start}, ghost_start={ghost_start}, duration={duration}, frame_skip={frame_skip}, resolution_scale={resolution_scale}")
     if not base_upload or not ghost_upload:
         return None, None, "Please upload both base and ghost videos."
@@ -354,7 +373,8 @@ def process_video_overlay(
     except ValueError as e:
         return None, None, str(e)
     timestamp = int(time.time())
-    output_path = f"overlay_output_{timestamp}.mp4"
+    unique_id = uuid.uuid4().hex[:8]
+    output_path = f"overlay_output_{timestamp}_{unique_id}.mp4"
     result_path, status_msg = overlay_videos(
         base_path=base_upload,
         ghost_path=ghost_upload,
@@ -371,11 +391,12 @@ def process_video_overlay(
     return result_path, result_path, status_msg
 
 def get_current_time_js(video_id: str) -> str:
-    """Generate JS to get current video time, format as HH:MM:SS.mmm"""
+    """Generate JS to get current video time, format as HH:MM:SS.mmm with bounds checking."""
     return f"""() => {{
         const vid = document.querySelector('#{video_id} video');
         if (!vid) return '00:00:00.000';
         const t = vid.currentTime;
+        if (t < 0 || t > {MAX_VIDEO_DURATION_SECONDS}) return '00:00:00.000';  // Reasonable bounds for video duration
         const hours = Math.floor(t / 3600).toString().padStart(2, '0');
         const mins = Math.floor((t % 3600) / 60).toString().padStart(2, '0');
         const secs = Math.floor(t % 60).toString().padStart(2, '0');
