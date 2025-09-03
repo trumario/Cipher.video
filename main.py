@@ -43,6 +43,7 @@ MAX_VIDEO_DURATION_SECONDS = 86400  # 24 hours, reasonable upper bound for video
 ECC_ITERATIONS = 50
 ECC_EPSILON = 1e-10
 ECC_MOTION_MODEL = cv2.MOTION_HOMOGRAPHY
+ALIGN_THRESHOLD = 0.6
 
 # Configuration - Load API key securely
 XAI_API_KEY = os.getenv("XAI_API_KEY")
@@ -236,18 +237,17 @@ def parse_timecode(tc: str) -> float:
     except ValueError as e:
         raise ValueError(f"Invalid timecode format: {tc}. Use HH:MM:SS.ms") from e
 
-def align_frames(base_frame: np.ndarray, ghost_frame: np.ndarray) -> np.ndarray:
-    """Align ghost frame to base frame using ECC for pixel-perfect background sync."""
+def align_frames(base_frame: np.ndarray, ghost_frame: np.ndarray, prev_warp_matrix: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Align ghost frame to base frame using ECC, falling back to previous warp on low correlation."""
     # Convert to grayscale for ECC
     base_gray = cv2.cvtColor(base_frame, cv2.COLOR_BGR2GRAY)
     ghost_gray = cv2.cvtColor(ghost_frame, cv2.COLOR_BGR2GRAY)
 
-    # Initialize warp matrix for homography
+    # Initialize warp matrix
     warp_matrix = np.eye(3, 3, dtype=np.float32)
 
-    # Find alignment transform
     try:
-        _, warp_matrix = cv2.findTransformECC(
+        cc, warp_matrix = cv2.findTransformECC(
             base_gray,
             ghost_gray,
             warp_matrix,
@@ -256,9 +256,11 @@ def align_frames(base_frame: np.ndarray, ghost_frame: np.ndarray) -> np.ndarray:
             inputMask=None,
             gaussFiltSize=5
         )
+        if cc < ALIGN_THRESHOLD:
+            raise cv2.error("Low correlation")
     except cv2.error as e:
-        logger.warning(f"ECC alignment failed: {e}. Falling back to no alignment.")
-        return ghost_frame
+        logger.warning(f"ECC alignment failed (low correlation or error: {e}). Using previous warp matrix.")
+        warp_matrix = prev_warp_matrix
 
     # Warp the ghost frame
     height, width = base_frame.shape[:2]
@@ -270,19 +272,10 @@ def align_frames(base_frame: np.ndarray, ghost_frame: np.ndarray) -> np.ndarray:
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=(0, 0, 0)
     )
-    return aligned_ghost
+    return aligned_ghost, warp_matrix
 
-def process_frame_task(
-    frame_base: np.ndarray,
-    frame_ghost: np.ndarray,
-    width: int,
-    height: int,
-    alpha: float
-) -> np.ndarray:
-    """Process a single frame pair: align and overlay."""
-    if frame_ghost.shape[:2] != (height, width):
-        frame_ghost = cv2.resize(frame_ghost, (width, height), interpolation=cv2.INTER_CUBIC)
-    aligned_ghost = align_frames(frame_base, frame_ghost)
+def blend_frames(frame_base: np.ndarray, aligned_ghost: np.ndarray, alpha: float) -> np.ndarray:
+    """Blend base and aligned ghost frames."""
     return cv2.addWeighted(frame_base, 1.0 - alpha, aligned_ghost, alpha, 0)
 
 def overlay_videos(
@@ -353,10 +346,12 @@ def overlay_videos(
         if not out.isOpened():
             return None, "Error: Could not initialize video writer. Ensure OpenCV is built with FFmpeg support."
         processed_frames = 0
+        prev_warp_matrix = np.eye(3, 3, dtype=np.float32)
         with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
             while processed_frames < total_output_frames and cap_base.isOpened() and cap_ghost.isOpened():
                 batch_size = min(MAX_THREADS, total_output_frames - processed_frames)
-                batch_frames = []
+                batch_bases = []
+                batch_ghosts = []
                 for _ in range(batch_size):
                     ret_base, frame_base = cap_base.read()
                     ret_ghost, frame_ghost = cap_ghost.read()
@@ -364,17 +359,29 @@ def overlay_videos(
                         break
                     if resolution_scale != 1.0:
                         frame_base = cv2.resize(frame_base, (width, height), interpolation=cv2.INTER_CUBIC)
-                    batch_frames.append((frame_base, frame_ghost))
+                        frame_ghost = cv2.resize(frame_ghost, (width, height), interpolation=cv2.INTER_CUBIC)
+                    batch_bases.append(frame_base)
+                    batch_ghosts.append(frame_ghost)
                     for _ in range(frame_skip - 1):
                         if not cap_base.read()[0] or not cap_ghost.read()[0]:
                             break
-                if not batch_frames:
+                batch_len = len(batch_bases)
+                if batch_len == 0:
                     break
-                futures = [executor.submit(process_frame_task, fb, fg, width, height, alpha) for fb, fg in batch_frames]
+                # Sequentially align frames to maintain state
+                aligned_ghosts = []
+                for base_frame, ghost_frame in zip(batch_bases, batch_ghosts):
+                    aligned_ghost, prev_warp_matrix = align_frames(base_frame, ghost_frame, prev_warp_matrix)
+                    aligned_ghosts.append(aligned_ghost)
+                # Parallelize blending
+                futures = [
+                    executor.submit(blend_frames, base, aligned, alpha)
+                    for base, aligned in zip(batch_bases, aligned_ghosts)
+                ]
                 for future in futures:
                     blended = future.result()
                     out.write(blended)
-                processed_frames += len(batch_frames)
+                processed_frames += batch_len
                 if progress and total_output_frames > 0 and processed_frames % PROGRESS_UPDATE_INTERVAL == 0:
                     progress(processed_frames / total_output_frames, desc=f"Processing {processed_frames}/{total_output_frames} frames")
         if progress and total_output_frames > 0:
