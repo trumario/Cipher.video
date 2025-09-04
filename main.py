@@ -454,7 +454,7 @@ def get_current_time_js(video_id: str) -> str:
 
 # Custom CSS for minimalistic UI
 CUSTOM_CSS = """
-meta[name="viewport"] { content: "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"; }
+meta[name="viewport"] { content: "width=device-width, initial-scale=1.0, maximum-scale=5.0"; }
 :root {
     --primary-color: #4a4a4a;
     --bg-color: #1e1e1e;
@@ -616,7 +616,7 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
         padding: 8px 12px;
         font-size: 16px;
     }
-    .gr-chatbot, .chatbot { min-height: 50vh; }
+    .gr-chatbot, .chatbot { min-height: 70vh; }
     .gr-video, .video-container { max-width: 100%; height: auto; }
     .input-container { gap: 4px; padding: 2px 4px; }
 }
