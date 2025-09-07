@@ -1,55 +1,126 @@
-# Overview
 
-This is a Grok-Powered Coding & Media Chat Agent built with Python and Gradio. The application creates a web-based chat interface that integrates with xAI's Grok API to provide coding assistance and image analysis capabilities. Users can interact with the AI through text or by providing image URLs (particularly useful for analyzing stock charts and other visual content). The application features a clean, modern web interface with streaming responses and supports both text-based coding queries and vision-based image analysis.
+# Cipher - AI-Powered Code Analysis & Video Processing Platform
 
-# User Preferences
-
-Preferred communication style: Simple, everyday language.
-
-# System Architecture
-
-## Frontend Architecture
-- **UI Framework**: Gradio-based web interface providing a chat-like experience
-- **Styling**: Custom CSS with gradient themes and modern responsive design
-- **User Input**: Supports both text input and image URL extraction via regex patterns
-- **Response Handling**: Real-time streaming responses from the AI model
-
-## Backend Architecture
-- **Main Framework**: Python-based application using the OpenAI client pattern
-- **API Integration**: Direct HTTP requests to xAI's API endpoints using the OpenAI-compatible interface
-- **Model Selection**: Dynamic model switching between text (`grok-2-1212`) and vision (`grok-2-vision-1212`) models based on input type
-- **Message Processing**: Conversation history management and context preservation across interactions
+A sophisticated web application that combines AI-powered code analysis with advanced video processing capabilities. Built with Python and Gradio, featuring integration with xAI's Grok API for intelligent code review and a powerful video overlay system for precision video editing.
 
 ## Core Features
-- **Multi-modal Input**: Automatic detection and processing of image URLs within text messages
-- **Streaming Responses**: Real-time response generation using server-sent events
-- **Conversation Memory**: Maintains chat history for contextual conversations
-- **Vision Capabilities**: Specialized handling for image analysis with high-detail processing
 
-## Configuration Management
-- **Environment Variables**: API keys stored securely using environment variable patterns
-- **Model Configuration**: Centralized model selection with fallback options
-- **Error Handling**: Graceful handling of API failures and invalid inputs
+### 🤖 AI Code Analysis & Chat
+- **Intelligent Code Review**: Advanced AI-powered code analysis using xAI's Grok models
+- **Multi-modal Input**: Support for both text-based code queries and image analysis (URLs)
+- **Streaming Responses**: Real-time AI responses with automatic continuation for long outputs
+- **Conversation Memory**: Maintains chat history for contextual conversations across sessions
+- **Security-First Analysis**: Built-in security auditing and vulnerability detection
+- **Performance Optimization**: Automated code refactoring suggestions for efficiency improvements
+- **Cross-Language Support**: Expert analysis across multiple programming languages
 
-# External Dependencies
+### 🎥 Advanced Video Processing
+- **Precision Video Overlay**: Pixel-perfect alignment of two video streams with ECC (Enhanced Correlation Coefficient) stabilization
+- **Multi-threaded Processing**: Optimized performance using ThreadPoolExecutor for batch frame processing
+- **Flexible Timeline Control**: Support for custom start times and durations with millisecond precision
+- **Adaptive Quality Settings**: Configurable resolution scaling (0.1x to 1.0x) and frame skip options
+- **Real-time Progress Tracking**: Live progress updates during video processing operations
+- **Large File Support**: Handles video files up to 10GB with built-in validation
+- **Format Compatibility**: Support for MP4, MOV, AVI, and MKV video formats
 
-## Core Dependencies
-- **gradio**: Web interface framework for creating the chat UI
-- **requests**: HTTP client for API communication
-- **openai**: Client library for xAI API integration (using OpenAI-compatible endpoints)
-- **opencv-python**: Image processing capabilities (opencv-python-headless for server environments)
-- **ffmpeg-python**: Multimedia processing support
+### 🎛️ Interactive Controls
+- **Frame-by-Frame Navigation**: Arrow key controls for precise video positioning
+- **Quick Timeline Setting**: Keyboard shortcuts (F/G keys) for rapid start time configuration
+- **Dynamic Opacity Control**: Real-time alpha blending adjustment (0.1 to 1.0)
+- **Responsive Design**: Optimized for both desktop and mobile interfaces
+- **Theme Switching**: Light/dark mode toggle with persistent preferences
 
-## External APIs
-- **xAI Grok API**: Primary AI service accessible at `https://api.x.ai/v1`
-  - Text model: `grok-2-1212`
-  - Vision model: `grok-2-vision-1212`
-  - Requires API key authentication
+## Technical Architecture
 
-## System Dependencies
-- **FFmpeg**: Required for multimedia processing (installable via apt in Replit environment)
-- **Python 3.x**: Runtime environment with support for async operations and HTTP streaming
+### Frontend
+- **Framework**: Gradio-based web interface with custom CSS styling
+- **Responsive Design**: Mobile-first approach with adaptive layouts
+- **Interactive Elements**: Custom JavaScript for video controls and keyboard shortcuts
+- **Theme System**: Dual-theme support with CSS custom properties
+- **Progress Visualization**: Real-time processing feedback with progress bars
 
-## Development Environment
-- **Replit**: Designed to run in Replit's cloud environment with built-in dependency management
-- **Environment Configuration**: Uses Replit's Secrets feature for secure API key storage
+### Backend
+- **Core Framework**: Python with OpenCV for video processing
+- **AI Integration**: Direct integration with xAI's Grok API endpoints
+- **Video Processing**: Advanced computer vision algorithms for frame alignment
+- **Memory Management**: Optimized for large file processing with batch operations
+- **Error Handling**: Comprehensive validation and graceful error recovery
+- **Logging System**: Detailed logging for debugging and monitoring
+
+### Performance Optimizations
+- **Parallel Processing**: Multi-threaded video frame processing
+- **Efficient Memory Usage**: Batch processing to minimize memory footprint
+- **Smart Caching**: Previous transformation matrix caching for smoother alignment
+- **Adaptive Algorithms**: ECC fallback mechanisms for challenging video content
+- **Resource Management**: Automatic cleanup and resource deallocation
+
+## API Integrations
+
+### xAI Grok API
+- **Text Model**: `grok-code-fast-1` for rapid code analysis
+- **Vision Model**: `grok-4-0709` for image and visual content analysis
+- **Streaming Support**: Server-sent events for real-time response delivery
+- **Automatic Model Selection**: Dynamic switching based on input content type
+- **Secure Authentication**: Environment-based API key management
+
+## Configuration & Deployment
+
+### Environment Setup
+- **Python 3.11+**: Modern Python runtime with asyncio support
+- **FFmpeg Integration**: Full multimedia processing capabilities via Nix packages
+- **Port Configuration**: Configurable port binding (default: 5000)
+- **SSL Support**: HTTPS-ready deployment configuration
+- **Resource Limits**: Configurable thread limits and processing constraints
+
+### Security Features
+- **Input Validation**: Comprehensive input sanitization and bounds checking
+- **File Size Limits**: Configurable maximum file size enforcement (10GB default)
+- **Secure File Handling**: Path validation and access control
+- **API Key Protection**: Secure environment variable handling
+- **Error Isolation**: Sandboxed error handling to prevent information leakage
+
+### Monitoring & Debugging
+- **Comprehensive Logging**: Multi-level logging with timestamp and context
+- **Performance Metrics**: Frame processing statistics and timing information
+- **Error Reporting**: Detailed error messages with context preservation
+- **Progress Tracking**: Real-time processing status updates
+
+## User Interface Features
+
+### Code Analysis Tab
+- **Chat Interface**: Conversational AI interaction with syntax highlighting
+- **Image URL Detection**: Automatic extraction and processing of image URLs
+- **Response Streaming**: Real-time response generation with typing indicators
+- **History Management**: Persistent conversation context across sessions
+
+### Video Processing Tab
+- **Dual Video Upload**: Side-by-side video preview and upload
+- **Timeline Controls**: Precise timecode input (HH:MM:SS.mmm format)
+- **Processing Options**: Advanced settings for quality, performance, and output control
+- **Real-time Preview**: Live feedback during processing operations
+- **Download Management**: Secure file download with progress tracking
+
+### Accessibility Features
+- **Keyboard Navigation**: Full keyboard support for all major functions
+- **Responsive Layout**: Adaptive design for various screen sizes
+- **Clear Visual Feedback**: Intuitive progress indicators and status messages
+- **Error Communication**: User-friendly error messages with actionable guidance
+
+## System Requirements
+
+### Runtime Dependencies
+- **Python**: 3.11 or higher
+- **OpenCV**: 4.12.0+ with FFmpeg support
+- **Gradio**: 5.44.1+ for web interface
+- **OpenAI Client**: 1.102.0+ for API communication
+
+### System Dependencies
+- **FFmpeg**: Full multimedia processing support
+- **Nix Environment**: Stable package management and reproducible builds
+- **Network Access**: HTTPS connectivity for API communications
+
+## User Preferences
+
+**Communication Style**: Simple, everyday language with clear explanations
+**Interface Design**: Clean, minimalistic UI with focus on functionality
+**Performance Priority**: Optimized for speed while maintaining quality output
