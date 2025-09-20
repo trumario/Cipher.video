@@ -89,31 +89,33 @@ def extract_image_url(message: str) -> Optional[str]:
     match = url_pattern.search(message)
     return match.group(0) if match else None
 
-def validate_image_file(file_path: str) -> bool:
-    """Validate image file for security: existence, readability, extension, size."""
+def validate_file(file_path: str, supported_extensions: set, max_size_bytes: int, allowed_base_dir: Optional[str] = None) -> bool:
+    """Validate that the file path exists, is accessible, has supported extension, does not exceed size limit, and is within allowed directory."""
     try:
-        path = Path(file_path)
+        path = Path(file_path).resolve()  # Resolve to absolute path to prevent traversal
         if not path.exists() or not path.is_file():
-            logger.error(f"Image file {file_path} does not exist or is not a file.")
+            logger.error(f"File {file_path} does not exist or is not a file.")
             return False
-        if not os.access(file_path, os.R_OK):
-            logger.error(f"Image file {file_path} is not readable.")
+        if not os.access(path, os.R_OK):
+            logger.error(f"File {path} is not readable.")
             return False
         ext = path.suffix.lower()
-        if ext not in SUPPORTED_IMAGE_EXTENSIONS:
-            logger.error(f"Image file {file_path} has unsupported extension {ext}.")
+        if ext not in supported_extensions:
+            logger.error(f"File {path} has unsupported extension {ext}. Supported: {supported_extensions}")
             return False
         file_size = path.stat().st_size
-        if file_size > MAX_IMAGE_FILE_SIZE_BYTES or file_size <= 0:
-            logger.error(f"Image file {file_path} size {file_size} bytes is invalid or exceeds limit.")
+        if file_size > max_size_bytes or file_size <= 0:
+            logger.error(f"File {path} size {file_size} bytes is invalid or exceeds limit of {max_size_bytes} bytes.")
             return False
-        # Additional security: ensure file is not in a sensitive directory
-        if '..' in str(path) or str(path).startswith('/'):
-            logger.error(f"Image file {file_path} has unsafe path.")
-            return False
+        # Security: ensure path is within allowed base directory if specified
+        if allowed_base_dir:
+            allowed_base = Path(allowed_base_dir).resolve()
+            if not path.is_relative_to(allowed_base):
+                logger.error(f"File {path} is outside allowed directory {allowed_base}.")
+                return False
         return True
     except Exception as e:
-        logger.error(f"Error validating image file {file_path}: {e}")
+        logger.error(f"Error validating file {file_path}: {e}")
         return False
 
 def query_grok_streaming(
@@ -161,7 +163,8 @@ def query_grok_streaming(
         user_content = user_input
         has_image = False
         if image_file:
-            if not validate_image_file(image_file):
+            allowed_dir = os.getcwd()  # Restrict to current working directory for uploads
+            if not validate_file(image_file, SUPPORTED_IMAGE_EXTENSIONS, MAX_IMAGE_FILE_SIZE_BYTES, allowed_base_dir=allowed_dir):
                 yield "Error: Invalid image file."
                 return
             try:
@@ -233,34 +236,6 @@ def respond(
         bot_message += delta
         new_history[-1] = (message or "[Image uploaded]", bot_message)
         yield new_history, ""
-
-def validate_file(file_path: str, supported_extensions: set, is_video: bool = True) -> bool:
-    """Validate that the file path exists, is accessible, has supported extension, and does not exceed size limit."""
-    try:
-        path = Path(file_path)
-        if not path.exists() or not path.is_file():
-            logger.error(f"File {file_path} does not exist or is not a file.")
-            return False
-        if not os.access(file_path, os.R_OK):
-            logger.error(f"File {file_path} is not readable.")
-            return False
-        ext = path.suffix.lower()
-        if ext not in supported_extensions:
-            logger.error(f"File {file_path} has unsupported extension {ext}. Supported: {supported_extensions}")
-            return False
-        file_size = path.stat().st_size
-        max_size = MAX_FILE_SIZE_BYTES if is_video else MAX_IMAGE_FILE_SIZE_BYTES
-        if file_size > max_size or file_size <= 0:
-            logger.error(f"File {file_path} size {file_size} bytes is invalid or exceeds limit of {max_size} bytes.")
-            return False
-        # Security: prevent directory traversal
-        if '..' in str(path) or str(path).startswith('/'):
-            logger.error(f"File {file_path} has unsafe path.")
-            return False
-        return True
-    except Exception as e:
-        logger.error(f"Error validating file {file_path}: {e}")
-        return False
 
 def parse_timecode(tc: str) -> float:
     """Parse timecode string (HH:MM:SS.ms) to seconds as float with bounds checking."""
@@ -350,8 +325,9 @@ def overlay_videos(
     cap_ghost = None
     out = None
     try:
+        allowed_dir = os.getcwd()  # Restrict file access to current working directory
         # Validate inputs
-        if not validate_file(base_path, SUPPORTED_VIDEO_EXTENSIONS, is_video=True) or not validate_file(ghost_path, SUPPORTED_VIDEO_EXTENSIONS, is_video=True):
+        if not validate_file(base_path, SUPPORTED_VIDEO_EXTENSIONS, MAX_FILE_SIZE_BYTES, allowed_base_dir=allowed_dir) or not validate_file(ghost_path, SUPPORTED_VIDEO_EXTENSIONS, MAX_FILE_SIZE_BYTES, allowed_base_dir=allowed_dir):
             return None, "Error: One or both video files are invalid, inaccessible, have unsupported formats, or exceed size limit."
         if not ALPHA_MIN <= alpha <= ALPHA_MAX:
             return None, f"Error: Alpha must be between {ALPHA_MIN} and {ALPHA_MAX}."
