@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Constants
 XAI_API_BASE_URL = "https://api.x.ai/v1"
 DEFAULT_MODEL = "grok-code-fast-1"
-VISION_MODEL = "grok-4-0709"
+VISION_MODEL = "grok-4-fast"
 DEFAULT_PORT = 5000
 MIN_PORT = 1
 MAX_PORT = 65535
