@@ -46,6 +46,8 @@ ECC_ITERATIONS = 50
 ECC_EPSILON = 1e-10
 ECC_MOTION_MODEL = cv2.MOTION_HOMOGRAPHY
 ALIGN_THRESHOLD = 0.6
+SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+MAX_IMAGE_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50MB for images, separate from videos
 
 # Configuration - Load API key securely
 XAI_API_KEY = os.getenv("XAI_API_KEY")
@@ -86,6 +88,33 @@ def extract_image_url(message: str) -> Optional[str]:
     )
     match = url_pattern.search(message)
     return match.group(0) if match else None
+
+def validate_image_file(file_path: str) -> bool:
+    """Validate image file for security: existence, readability, extension, size."""
+    try:
+        path = Path(file_path)
+        if not path.exists() or not path.is_file():
+            logger.error(f"Image file {file_path} does not exist or is not a file.")
+            return False
+        if not os.access(file_path, os.R_OK):
+            logger.error(f"Image file {file_path} is not readable.")
+            return False
+        ext = path.suffix.lower()
+        if ext not in SUPPORTED_IMAGE_EXTENSIONS:
+            logger.error(f"Image file {file_path} has unsupported extension {ext}.")
+            return False
+        file_size = path.stat().st_size
+        if file_size > MAX_IMAGE_FILE_SIZE_BYTES or file_size <= 0:
+            logger.error(f"Image file {file_path} size {file_size} bytes is invalid or exceeds limit.")
+            return False
+        # Additional security: ensure file is not in a sensitive directory
+        if '..' in str(path) or str(path).startswith('/'):
+            logger.error(f"Image file {file_path} has unsafe path.")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Error validating image file {file_path}: {e}")
+        return False
 
 def query_grok_streaming(
     user_input: str,
@@ -132,6 +161,9 @@ def query_grok_streaming(
         user_content = user_input
         has_image = False
         if image_file:
+            if not validate_image_file(image_file):
+                yield "Error: Invalid image file."
+                return
             try:
                 with open(image_file, 'rb') as f:
                     image_data = base64.b64encode(f.read()).decode('utf-8')
@@ -206,8 +238,8 @@ def validate_file(file_path: str, supported_extensions: set, is_video: bool = Tr
     """Validate that the file path exists, is accessible, has supported extension, and does not exceed size limit."""
     try:
         path = Path(file_path)
-        if not path.exists():
-            logger.error(f"File {file_path} does not exist or is not accessible.")
+        if not path.exists() or not path.is_file():
+            logger.error(f"File {file_path} does not exist or is not a file.")
             return False
         if not os.access(file_path, os.R_OK):
             logger.error(f"File {file_path} is not readable.")
@@ -217,8 +249,13 @@ def validate_file(file_path: str, supported_extensions: set, is_video: bool = Tr
             logger.error(f"File {file_path} has unsupported extension {ext}. Supported: {supported_extensions}")
             return False
         file_size = path.stat().st_size
-        if file_size > MAX_FILE_SIZE_BYTES:
-            logger.error(f"File {file_path} size {file_size} bytes exceeds limit of {MAX_FILE_SIZE_BYTES} bytes.")
+        max_size = MAX_FILE_SIZE_BYTES if is_video else MAX_IMAGE_FILE_SIZE_BYTES
+        if file_size > max_size or file_size <= 0:
+            logger.error(f"File {file_path} size {file_size} bytes is invalid or exceeds limit of {max_size} bytes.")
+            return False
+        # Security: prevent directory traversal
+        if '..' in str(path) or str(path).startswith('/'):
+            logger.error(f"File {file_path} has unsafe path.")
             return False
         return True
     except Exception as e:
@@ -314,7 +351,7 @@ def overlay_videos(
     out = None
     try:
         # Validate inputs
-        if not validate_file(base_path, SUPPORTED_VIDEO_EXTENSIONS) or not validate_file(ghost_path, SUPPORTED_VIDEO_EXTENSIONS):
+        if not validate_file(base_path, SUPPORTED_VIDEO_EXTENSIONS, is_video=True) or not validate_file(ghost_path, SUPPORTED_VIDEO_EXTENSIONS, is_video=True):
             return None, "Error: One or both video files are invalid, inaccessible, have unsupported formats, or exceed size limit."
         if not ALPHA_MIN <= alpha <= ALPHA_MAX:
             return None, f"Error: Alpha must be between {ALPHA_MIN} and {ALPHA_MAX}."
@@ -626,7 +663,15 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
     justify-content: center;
     padding: 0;
     font-size: 16px;
+    cursor: pointer;
+    background-color: var(--button-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
 }
+.attach-btn:hover { background-color: var(--button-hover); }
+#image_upload { display: none; }
 @media (max-width: 768px) {
     html, body { -webkit-text-size-adjust: none; touch-action: manipulation; }
     .gradio-container { padding: 4px; }
@@ -713,11 +758,10 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
     with gr.Tab("Code"):
         chatbot = gr.Chatbot(height="60vh")
         with gr.Row(elem_classes=["input-container"]):
-            attach_btn = gr.Button("📎", elem_classes=["attach-btn"])
+            attach_html = gr.HTML('<label for="image_upload" class="attach-btn">📎</label>')
             textbox = gr.Textbox(placeholder="Enter code or image URL...", show_label=False, container=False, scale=10, lines=5)
             submit_btn = gr.Button("↑", elem_classes=["submit-btn"])
-        image_input = gr.File(label="", file_types=["image"], elem_id="image_upload", visible=False)
-        attach_btn.click(None, js="document.getElementById('image_upload').click();")
+        image_input = gr.File(label="", file_types=["image"], elem_id="image_upload")
         submit_btn.click(
             respond,
             inputs=[textbox, chatbot, image_input],
