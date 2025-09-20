@@ -1,6 +1,8 @@
 import os
 import re
 import cv2
+import base64
+import mimetypes
 from openai import OpenAI, APIError, AuthenticationError
 from typing import List, Optional, Tuple, Generator
 import time
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Constants
 XAI_API_BASE_URL = "https://api.x.ai/v1"
 DEFAULT_MODEL = "grok-code-fast-1"
-VISION_MODEL = "grok-4-fast"
+VISION_MODEL = "grok-4-fast-reasoning"
 DEFAULT_PORT = 5000
 MIN_PORT = 1
 MAX_PORT = 65535
@@ -89,7 +91,8 @@ def query_grok_streaming(
     user_input: str,
     history: Optional[List[Tuple[str, str]]] = None,
     model: str = DEFAULT_MODEL,
-    image_url: Optional[str] = None
+    image_url: Optional[str] = None,
+    image_file: Optional[str] = None
 ) -> Generator[str, None, None]:
     """Query Grok API with streaming response support and automatic continuation if truncated."""
     if history is None:
@@ -127,7 +130,22 @@ def query_grok_streaming(
             messages.append({"role": "user", "content": user})
             messages.append({"role": "assistant", "content": assistant})
         user_content = user_input
-        has_image = bool(image_url)
+        has_image = False
+        if image_file:
+            try:
+                with open(image_file, 'rb') as f:
+                    image_data = base64.b64encode(f.read()).decode('utf-8')
+                mime_type, _ = mimetypes.guess_type(image_file)
+                if not mime_type:
+                    mime_type = 'image/jpeg'  # Default fallback
+                image_url = f"data:{mime_type};base64,{image_data}"
+                has_image = True
+            except Exception as e:
+                logger.error(f"Error processing image file {image_file}: {e}")
+                yield f"Error processing image: {str(e)}"
+                return
+        elif image_url:
+            has_image = True
         if has_image:
             model = VISION_MODEL
             user_content = [
@@ -167,20 +185,21 @@ def query_grok_streaming(
 
 def respond(
     message: str,
-    chat_history: List[Tuple[str, str]]
+    chat_history: List[Tuple[str, str]],
+    image_input: Optional[str]
 ) -> Generator[Tuple[List[Tuple[str, str]], str], None, None]:
     """Handle chat response with input validation."""
-    if not message.strip():
+    if not message.strip() and not image_input:
         yield chat_history, ""
         return
-    image_url = extract_image_url(message)
-    model = VISION_MODEL if image_url else DEFAULT_MODEL
+    image_url = extract_image_url(message) if message else None
+    model = VISION_MODEL if image_input or image_url else DEFAULT_MODEL
     bot_message = ""
-    new_history = chat_history + [(message, bot_message)]
+    new_history = chat_history + [(message or "[Image uploaded]", bot_message)]
     yield new_history, ""
-    for delta in query_grok_streaming(message, [(h, a) for h, a in chat_history], model=model, image_url=image_url):
+    for delta in query_grok_streaming(message or "", [(h, a) for h, a in chat_history], model=model, image_url=image_url, image_file=image_input):
         bot_message += delta
-        new_history[-1] = (message, bot_message)
+        new_history[-1] = (message or "[Image uploaded]", bot_message)
         yield new_history, ""
 
 def validate_file(file_path: str, supported_extensions: set, is_video: bool = True) -> bool:
@@ -367,7 +386,7 @@ def overlay_videos(
                 batch_len = len(batch_bases)
                 if batch_len == 0:
                     break
-                # Sequentially align frames to maintain stateu
+                # Sequentially align frames to maintain state
                 aligned_ghosts = []
                 for base_frame, ghost_frame in zip(batch_bases, batch_ghosts):
                     aligned_ghost, prev_warp_matrix = align_frames(base_frame, ghost_frame, prev_warp_matrix)
@@ -433,7 +452,7 @@ def process_video_overlay(
         resolution_scale=resolution_scale,
         progress=progress
     )
-    download_update = gr.update(value=result_path, visible=True) if result_path and os.path.exists(result_path) else gr.update(value=None, visible=False)
+    download_update = gr.update(value=result_path, visible=True) if result_path and os.path.exists(result_path) else gr.update(visible=False)
     logger.info(f"Overlay result: path={result_path}, message={status_msg}, download_visible={download_update['visible']}")
     return result_path, result_path, download_update, status_msg
 
@@ -599,6 +618,15 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
     justify-content: center;
     padding: 0;
 }
+.attach-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    font-size: 16px;
+}
 @media (max-width: 768px) {
     html, body { -webkit-text-size-adjust: none; touch-action: manipulation; }
     .gradio-container { padding: 4px; }
@@ -685,11 +713,14 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
     with gr.Tab("Code"):
         chatbot = gr.Chatbot(height="60vh")
         with gr.Row(elem_classes=["input-container"]):
+            attach_btn = gr.Button("📎", elem_classes=["attach-btn"])
             textbox = gr.Textbox(placeholder="Enter code or image URL...", show_label=False, container=False, scale=10, lines=5)
             submit_btn = gr.Button("↑", elem_classes=["submit-btn"])
+        image_input = gr.File(label="", file_types=["image"], elem_id="image_upload", visible=False)
+        attach_btn.click(None, js="document.getElementById('image_upload').click();")
         submit_btn.click(
             respond,
-            inputs=[textbox, chatbot],
+            inputs=[textbox, chatbot, image_input],
             outputs=[chatbot, textbox]
         )
     with gr.Tab("Video"):
