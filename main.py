@@ -663,15 +663,7 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
     justify-content: center;
     padding: 0;
     font-size: 16px;
-    cursor: pointer;
-    background-color: var(--button-bg);
-    color: var(--text-color);
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    transition: background-color 0.2s ease;
 }
-.attach-btn:hover { background-color: var(--button-hover); }
-#image_upload { display: none; }
 @media (max-width: 768px) {
     html, body { -webkit-text-size-adjust: none; touch-action: manipulation; }
     .gradio-container { padding: 4px; }
@@ -758,10 +750,14 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
     with gr.Tab("Code"):
         chatbot = gr.Chatbot(height="60vh")
         with gr.Row(elem_classes=["input-container"]):
-            attach_html = gr.HTML('<label for="image_upload" class="attach-btn">📎</label>')
+            attach_btn = gr.Button("📎", elem_classes=["attach-btn"])
             textbox = gr.Textbox(placeholder="Enter code or image URL...", show_label=False, container=False, scale=10, lines=5)
             submit_btn = gr.Button("↑", elem_classes=["submit-btn"])
-        image_input = gr.File(label="", file_types=["image"], elem_id="image_upload")
+        image_input = gr.File(label="", file_types=["image"], elem_id="image_upload", visible=False)
+        attach_btn.click(None, js="""() => {
+            const input = document.querySelector('#image_upload input[type="file"]');
+            if (input) input.click();
+        }""")
         submit_btn.click(
             respond,
             inputs=[textbox, chatbot, image_input],
