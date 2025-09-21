@@ -47,7 +47,9 @@ ECC_EPSILON = 1e-10
 ECC_MOTION_MODEL = cv2.MOTION_HOMOGRAPHY
 ALIGN_THRESHOLD = 0.6
 SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+SUPPORTED_CODE_EXTENSIONS = {'.py', '.js', '.txt', '.cpp', '.c', '.h', '.java', '.html', '.css', '.json', '.xml', '.md', '.sh', '.bat', '.yml', '.yaml'}
 MAX_IMAGE_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50MB for images, separate from videos
+MAX_CODE_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10MB for code files
 
 # Configuration - Load API key securely
 XAI_API_KEY = os.getenv("XAI_API_KEY")
@@ -123,7 +125,7 @@ def query_grok_streaming(
     history: Optional[List[Tuple[str, str]]] = None,
     model: str = DEFAULT_MODEL,
     image_url: Optional[str] = None,
-    image_file: Optional[str] = None
+    file_input: Optional[str] = None
 ) -> Generator[str, None, None]:
     """Query Grok API with streaming response support and automatic continuation if truncated."""
     if history is None:
@@ -162,22 +164,40 @@ def query_grok_streaming(
             messages.append({"role": "assistant", "content": assistant})
         user_content = user_input
         has_image = False
-        if image_file:
+        if file_input:
             allowed_dir = os.getcwd()  # Restrict to current working directory for uploads
-            if not validate_file(image_file, SUPPORTED_IMAGE_EXTENSIONS, MAX_IMAGE_FILE_SIZE_BYTES, allowed_base_dir=allowed_dir):
-                yield "Error: Invalid image file."
-                return
-            try:
-                with open(image_file, 'rb') as f:
-                    image_data = base64.b64encode(f.read()).decode('utf-8')
-                mime_type, _ = mimetypes.guess_type(image_file)
-                if not mime_type:
-                    mime_type = 'image/jpeg'  # Default fallback
-                image_url = f"data:{mime_type};base64,{image_data}"
-                has_image = True
-            except Exception as e:
-                logger.error(f"Error processing image file {image_file}: {e}")
-                yield f"Error processing image: {str(e)}"
+            path = Path(file_input)
+            ext = path.suffix.lower()
+            if ext in SUPPORTED_IMAGE_EXTENSIONS:
+                if not validate_file(file_input, SUPPORTED_IMAGE_EXTENSIONS, MAX_IMAGE_FILE_SIZE_BYTES, allowed_base_dir=allowed_dir):
+                    yield "Error: Invalid image file."
+                    return
+                try:
+                    with open(file_input, 'rb') as f:
+                        image_data = base64.b64encode(f.read()).decode('utf-8')
+                    mime_type, _ = mimetypes.guess_type(file_input)
+                    if not mime_type:
+                        mime_type = 'image/jpeg'  # Default fallback
+                    image_url = f"data:{mime_type};base64,{image_data}"
+                    has_image = True
+                except Exception as e:
+                    logger.error(f"Error processing image file {file_input}: {e}")
+                    yield f"Error processing image: {str(e)}"
+                    return
+            elif ext in SUPPORTED_CODE_EXTENSIONS:
+                if not validate_file(file_input, SUPPORTED_CODE_EXTENSIONS, MAX_CODE_FILE_SIZE_BYTES, allowed_base_dir=allowed_dir):
+                    yield "Error: Invalid code file."
+                    return
+                try:
+                    with open(file_input, 'r', encoding='utf-8', errors='ignore') as f:
+                        code_content = f.read()
+                    user_content = user_input + "\n\nUploaded code:\n" + code_content
+                except Exception as e:
+                    logger.error(f"Error processing code file {file_input}: {e}")
+                    yield f"Error processing code file: {str(e)}"
+                    return
+            else:
+                yield "Error: Unsupported file type."
                 return
         elif image_url:
             has_image = True
@@ -221,20 +241,20 @@ def query_grok_streaming(
 def respond(
     message: str,
     chat_history: List[Tuple[str, str]],
-    image_input: Optional[str]
+    file_input: Optional[str]
 ) -> Generator[Tuple[List[Tuple[str, str]], str], None, None]:
     """Handle chat response with input validation."""
-    if not message.strip() and not image_input:
+    if not message.strip() and not file_input:
         yield chat_history, ""
         return
     image_url = extract_image_url(message) if message else None
-    model = VISION_MODEL if image_input or image_url else DEFAULT_MODEL
+    model = VISION_MODEL if file_input and Path(file_input).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS or image_url else DEFAULT_MODEL
     bot_message = ""
-    new_history = chat_history + [(message or "[Image uploaded]", bot_message)]
+    new_history = chat_history + [(message or "[File uploaded]", bot_message)]
     yield new_history, ""
-    for delta in query_grok_streaming(message or "", [(h, a) for h, a in chat_history], model=model, image_url=image_url, image_file=image_input):
+    for delta in query_grok_streaming(message or "", [(h, a) for h, a in chat_history], model=model, image_url=image_url, file_input=file_input):
         bot_message += delta
-        new_history[-1] = (message or "[Image uploaded]", bot_message)
+        new_history[-1] = (message or "[File uploaded]", bot_message)
         yield new_history, ""
 
 def parse_timecode(tc: str) -> float:
@@ -729,14 +749,14 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
             attach_btn = gr.Button("📎", elem_classes=["attach-btn"])
             textbox = gr.Textbox(placeholder="Enter code or image URL...", show_label=False, container=False, scale=10, lines=5)
             submit_btn = gr.Button("↑", elem_classes=["submit-btn"])
-        image_input = gr.File(label="", file_types=["image"], elem_id="image_upload", visible=False)
+        file_input = gr.File(label="Upload Image or Code File", file_types=list(SUPPORTED_IMAGE_EXTENSIONS | SUPPORTED_CODE_EXTENSIONS), elem_id="file_upload", visible=False)
         attach_btn.click(None, js="""() => {
-            const input = document.querySelector('#image_upload input[type="file"]');
+            const input = document.querySelector('#file_upload input[type="file"]');
             if (input) input.click();
         }""")
         submit_btn.click(
             respond,
-            inputs=[textbox, chatbot, image_input],
+            inputs=[textbox, chatbot, file_input],
             outputs=[chatbot, textbox]
         )
     with gr.Tab("Video"):
@@ -760,7 +780,7 @@ with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
         with gr.Row():
             alpha_slider = gr.Slider(ALPHA_MIN, ALPHA_MAX, value=0.5, label="Opacity")
             duration = gr.Textbox(value="", label="Duration (HH:MM:SS.mmm, optional)")
-            frame_skip = gr.Number(value=DEFAULT_FRAME_SKIP, label="Frame Skip", minimum=1, maximum=MAX_FRAME_SKIP, step=1, precision=0)
+            frame_skip = gr.Number(value=DEFAULT_FRAME_SKIP, label="Frame Skip", minimum=1, maximum=MAX_FRAME_SKIP, step=1, precision=0, interactive=True)
             resolution_scale = gr.Slider(0.1, 1.0, value=DEFAULT_RESOLUTION_SCALE, label="Resolution Scale")
         process_btn = gr.Button("Process")
         output_video = gr.Video(label="Output Video", elem_id="output_video")
