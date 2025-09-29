@@ -153,7 +153,7 @@ def query_grok_streaming(
 "Provide the fully refactored code in a single, complete block.\n"
 "Follow the code with a concise summary of changes made, categorized by security, optimization, redundancy removal, etc.\n"
 "If any assumptions were made (e.g., about the codebase), note them briefly.\n"
-"Do not introduce new features; only refine the existing code.\n\n"
+"Do not introduce new features; only refine the existing code. Only make additional changes if explicitly requested, and confirm them before proceeding.\n\n"
 "Ensure the final output is perfect, secure, optimized code ready for production. If the code cannot be fully improved without additional context, state that clearly and suggest next steps."
         )
         messages = [
