@@ -688,7 +688,7 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
 """
 
 # Create Gradio interface
-with gr.Blocks(title="Cipher", css=CUSTOM_CSS) as demo:
+with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
     gr.HTML("""
     <script>
     document.addEventListener('DOMContentLoaded', () => {
