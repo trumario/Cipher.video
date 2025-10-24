@@ -11,7 +11,6 @@ import atexit
 import tempfile
 import shutil
 import textwrap
-from hardcore import run_hardcore_mode
 from pathlib import Path
 from typing import List, Optional, Tuple, Generator
 from concurrent.futures import ThreadPoolExecutor
@@ -26,48 +25,48 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-XAI_API_BASE_URL = "https://api.x.ai/v1"
-DEFAULT_MODEL = "grok-code-fast-1"
-VISION_MODEL = "grok-4-fast-reasoning"
-XAI_API_KEY = os.getenv("XAI_API_KEY")
+XAI_API_BASE_URL: str = "https://api.x.ai/v1"
+DEFAULT_MODEL: str = "grok-code-fast-1"
+VISION_MODEL: str = "grok-4-fast-reasoning"
+XAI_API_KEY: Optional[str] = os.getenv("XAI_API_KEY")
 
-DEFAULT_PORT = 5000
-MIN_PORT = 1
-MAX_PORT = 65535
-MAX_THREADS = min(os.cpu_count() or 4, 8)
-MAX_FILE_SIZE_GB = 10
-MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_GB * 1024**3
-MAX_IMAGE_FILE_SIZE_BYTES = 50 * 1024 * 1024
-MAX_CODE_FILE_SIZE_BYTES = 10 * 1024 * 1024
+DEFAULT_PORT: int = 5000
+MIN_PORT: int = 1
+MAX_PORT: int = 65535
+MAX_THREADS: int = min(os.cpu_count() or 4, 8)
+MAX_FILE_SIZE_GB: int = 10
+MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_GB * 1024**3
+MAX_IMAGE_FILE_SIZE_BYTES: int = 50 * 1024 * 1024
+MAX_CODE_FILE_SIZE_BYTES: int = 10 * 1024 * 1024
 
-SUPPORTED_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv'}
-SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
-SUPPORTED_CODE_EXTENSIONS = {'.py', '.js', '.txt', '.cpp', '.c', '.h', '.java', '.html', '.css', '.json', '.xml', '.md', '.sh', '.bat', '.yml', '.yaml'}
-DEFAULT_FRAME_SKIP = 1
-MAX_FRAME_SKIP = 10
-DEFAULT_RESOLUTION_SCALE = 1.0
-ALPHA_MIN = 0.1
-ALPHA_MAX = 1.0
-PROGRESS_UPDATE_INTERVAL = 100
-MSEC_PER_SEC = 1000
-MAX_VIDEO_DURATION_SECONDS = 86400
-URL_MAX_LENGTH = 2048
-QUERY_MAX_LENGTH = 1024
-FPS_ASSUMPTION_FOR_JS = 30
+SUPPORTED_VIDEO_EXTENSIONS: set[str] = {'.mp4', '.mov', '.avi', '.mkv'}
+SUPPORTED_IMAGE_EXTENSIONS: set[str] = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+SUPPORTED_CODE_EXTENSIONS: set[str] = {'.py', '.js', '.txt', '.cpp', '.c', '.h', '.java', '.html', '.css', '.json', '.xml', '.md', '.sh', '.bat', '.yml', '.yaml'}
+DEFAULT_FRAME_SKIP: int = 1
+MAX_FRAME_SKIP: int = 10
+DEFAULT_RESOLUTION_SCALE: float = 1.0
+ALPHA_MIN: float = 0.1
+ALPHA_MAX: float = 1.0
+PROGRESS_UPDATE_INTERVAL: int = 100
+MSEC_PER_SEC: int = 1000
+MAX_VIDEO_DURATION_SECONDS: int = 86400
+URL_MAX_LENGTH: int = 2048
+QUERY_MAX_LENGTH: int = 1024
+FPS_ASSUMPTION_FOR_JS: int = 30
 
-ECC_ITERATIONS = 50
-ECC_EPSILON = 1e-10
-ECC_MOTION_MODEL = cv2.MOTION_HOMOGRAPHY
-ALIGN_THRESHOLD = 0.6
+ECC_ITERATIONS: int = 50
+ECC_EPSILON: float = 1e-10
+ECC_MOTION_MODEL: int = cv2.MOTION_HOMOGRAPHY
+ALIGN_THRESHOLD: float = 0.6
 
-TEMPERATURE = 0.7
-MAX_COMPLETION_TOKENS = 16384
+TEMPERATURE: float = 0.7
+MAX_COMPLETION_TOKENS: int = 16384
 
-UPLOAD_DIR = tempfile.mkdtemp(prefix="cipher_uploads_")
+UPLOAD_DIR: str = tempfile.mkdtemp(prefix="cipher_uploads_")
 atexit.register(lambda: shutil.rmtree(UPLOAD_DIR, ignore_errors=True))
-ALLOWED_BASE_DIR = Path(UPLOAD_DIR).resolve()
+ALLOWED_BASE_DIR: Path = Path(UPLOAD_DIR).resolve()
 
-SYSTEM_PROMPT_LEARNING = """You are a senior software engineer and patient mentor. Your job is to help me write, understand, and improve code — not just deliver perfect code.
+SYSTEM_PROMPT_LEARNING: str = """You are a senior software engineer and patient mentor. Your job is to help me write, understand, and improve code — not just deliver perfect code.
 
 Follow this strict process:
 
@@ -96,7 +95,7 @@ Follow this strict process:
 
 Goal: Help me become a better programmer. Teach, verify, collaborate."""
 
-SYSTEM_PROMPT_POLISH = """You are a principal engineer at a Fortune 500 company. Your task: take the provided Python code and deliver production-grade, zero-compromise output.
+SYSTEM_PROMPT_POLISH: str = """You are a principal engineer at a Fortune 500 company. Your task: take the provided Python code and deliver production-grade, zero-compromise output.
 
 Rules:
 1. **Security**: Eliminate path traversal, injection, overflow, race conditions. Use `pathlib`, `resolve()`, `is_relative_to`, safe I/O.
@@ -131,7 +130,7 @@ def create_xai_client() -> Optional[OpenAI]:
         logger.error(f"Unexpected error creating xAI client: {e}")
         return None
 
-client = create_xai_client()
+client: Optional[OpenAI] = create_xai_client()
 
 def extract_image_url(message: str) -> Optional[str]:
     if not message or not isinstance(message, str):
@@ -143,7 +142,7 @@ def extract_image_url(message: str) -> Optional[str]:
     match = url_pattern.search(message)
     return match.group(0) if match else None
 
-def validate_file(file_path: str, supported_extensions: set, max_size_bytes: int) -> bool:
+def validate_file(file_path: str, supported_extensions: set[str], max_size_bytes: int) -> bool:
     try:
         path = Path(file_path).resolve()
         if not path.exists() or not path.is_file():
@@ -165,6 +164,20 @@ def validate_file(file_path: str, supported_extensions: set, max_size_bytes: int
     except Exception as e:
         logger.error(f"Validation error: {e}")
         return False
+
+def secure_file_upload(file_path: str) -> Optional[str]:
+    """Securely move uploaded file to allowed directory to prevent path traversal."""
+    try:
+        source_path = Path(file_path).resolve()
+        if not source_path.is_relative_to(ALLOWED_BASE_DIR):
+            dest_name = uuid.uuid4().hex + source_path.suffix
+            dest_path = ALLOWED_BASE_DIR / dest_name
+            shutil.move(str(source_path), str(dest_path))
+            return str(dest_path)
+        return file_path
+    except Exception as e:
+        logger.error(f"File upload security error: {e}")
+        return None
 
 def query_grok_streaming(
     user_input: str,
@@ -191,21 +204,25 @@ def query_grok_streaming(
     has_image = bool(image_url or file_input)
 
     if file_input:
-        ext = Path(file_input).suffix.lower()
+        secure_path = secure_file_upload(file_input)
+        if not secure_path:
+            yield "Error: File upload security check failed."
+            return
+        ext = Path(secure_path).suffix.lower()
         if ext in SUPPORTED_IMAGE_EXTENSIONS:
-            if not validate_file(file_input, SUPPORTED_IMAGE_EXTENSIONS, MAX_IMAGE_FILE_SIZE_BYTES):
+            if not validate_file(secure_path, SUPPORTED_IMAGE_EXTENSIONS, MAX_IMAGE_FILE_SIZE_BYTES):
                 yield "Error: Invalid image file."
                 return
-            with open(file_input, 'rb') as f:
+            with open(secure_path, 'rb') as f:
                 image_data = base64.b64encode(f.read()).decode('utf-8')
-            mime_type = mimetypes.guess_type(file_input)[0] or 'image/jpeg'
+            mime_type = mimetypes.guess_type(secure_path)[0] or 'image/jpeg'
             image_url = f"data:{mime_type};base64,{image_data}"
             has_image = True
         elif ext in SUPPORTED_CODE_EXTENSIONS:
-            if not validate_file(file_input, SUPPORTED_CODE_EXTENSIONS, MAX_CODE_FILE_SIZE_BYTES):
+            if not validate_file(secure_path, SUPPORTED_CODE_EXTENSIONS, MAX_CODE_FILE_SIZE_BYTES):
                 yield "Error: Invalid code file."
                 return
-            with open(file_input, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(secure_path, 'r', encoding='utf-8', errors='ignore') as f:
                 code_content = f.read()
             user_content += "\n\nUploaded code:\n" + code_content
         else:
@@ -259,15 +276,6 @@ def respond(
 ) -> Generator[Tuple[List[Tuple[str, str]], str], None, None]:
     if not message.strip() and not file_input:
         yield chat_history, ""
-        return
-
-    if mode == "HARDCORE":
-        final_code, _, proof = run_hardcore_mode(message, 10.0)
-        learning_desc = "This is a learning-focused refactor: Break problems into steps, explain code, verify with tests. See API docs at https://docs.python.org/3/ and https://www.gradio.app/docs/."
-        proof_md = f"**Proof**: Score {proof['score']}/10, Time {proof['duration']}, Agents {proof['agents_ran']}. Log: {'; '.join(proof['proof_log'])}."
-        bot_message = f"### HARDCORE COMPLETE\n**Drop-In Code** (Copy Ready):\n```python\n{final_code}\n```\n{learning_desc}\n{proof_md}"
-        new_history = chat_history + [(message or "[File uploaded]", bot_message)]
-        yield new_history, ""
         return
 
     image_url = extract_image_url(message) if message else None
@@ -333,8 +341,12 @@ def overlay_videos(
 ) -> Tuple[Optional[str], str]:
     cap_base = cap_ghost = out = None
     try:
-        if not (validate_file(base_path, SUPPORTED_VIDEO_EXTENSIONS, MAX_FILE_SIZE_BYTES) and
-                validate_file(ghost_path, SUPPORTED_VIDEO_EXTENSIONS, MAX_FILE_SIZE_BYTES)):
+        secure_base = secure_file_upload(base_path)
+        secure_ghost = secure_file_upload(ghost_path)
+        if not secure_base or not secure_ghost:
+            return None, "File upload security check failed."
+        if not (validate_file(secure_base, SUPPORTED_VIDEO_EXTENSIONS, MAX_FILE_SIZE_BYTES) and
+                validate_file(secure_ghost, SUPPORTED_VIDEO_EXTENSIONS, MAX_FILE_SIZE_BYTES)):
             return None, "Invalid video file."
 
         if not (ALPHA_MIN <= alpha <= ALPHA_MAX and base_start_sec >= 0 and ghost_start_sec >= 0 and
@@ -342,8 +354,8 @@ def overlay_videos(
                 0.1 <= resolution_scale <= 1.0):
             return None, "Invalid parameter."
 
-        cap_base = cv2.VideoCapture(base_path)
-        cap_ghost = cv2.VideoCapture(ghost_path)
+        cap_base = cv2.VideoCapture(secure_base)
+        cap_ghost = cv2.VideoCapture(secure_ghost)
         if not (cap_base.isOpened() and cap_ghost.isOpened()):
             return None, "Failed to open video."
 
@@ -471,7 +483,7 @@ def get_current_time_js(video_id: str) -> str:
         return `${{hours}}:${{mins}}:${{secs}}.${{ms}}`;
     }}"""
 
-CUSTOM_CSS = """
+CUSTOM_CSS: str = """
 meta[name="viewport"] { content: "width=device-width, initial-scale=1.0, maximum-scale=5.0"; }
 :root {
     --primary-color: #4a4a4a;
@@ -715,10 +727,10 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
         with gr.Row():
             mode_btn = gr.Button("LEARNING", variant="secondary", scale=1, elem_classes=["mode-toggle"])
         chatbot = gr.Chatbot(height="60vh")
-        file_input = gr.File(label="Upload Image or Code File (Drag & Drop or Click)", file_types=list(SUPPORTED_IMAGE_EXTENSIONS | SUPPORTED_CODE_EXTENSIONS), visible=True)
+        file_input = gr.File(label="Upload Image for Vision Analysis", file_types=list(SUPPORTED_IMAGE_EXTENSIONS), visible=True, scale=1)
         with gr.Row(elem_classes=["input-container"]):
-            textbox = gr.Textbox(placeholder="Enter code or image URL...", show_label=False, container=False, scale=10, lines=5)
-            submit_btn = gr.Button("Send", elem_classes=["submit-btn"])
+            textbox = gr.Textbox(placeholder="Describe the image or ask a question...", show_label=False, container=False, scale=10, lines=5)
+            submit_btn = gr.Button("Analyze", elem_classes=["submit-btn"])
         submit_btn.click(
             respond,
             inputs=[textbox, chatbot, file_input, mode_state],
