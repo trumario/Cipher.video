@@ -11,6 +11,7 @@ import atexit
 import tempfile
 import shutil
 import textwrap
+import Kardashev2  # New import
 from pathlib import Path
 from typing import List, Optional, Tuple, Generator
 from concurrent.futures import ThreadPoolExecutor
