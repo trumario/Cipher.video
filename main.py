@@ -278,12 +278,17 @@ def respond(
     if not message.strip() and not file_input:
         yield chat_history, ""
         return
-
-    image_url = extract_image_url(message) if message else None
-    model = VISION_MODEL if (file_input and Path(file_input).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS) or image_url else DEFAULT_MODEL
-    bot_message = ""
-    new_history = chat_history + [(message or "[File uploaded]", bot_message)]
-    yield new_history, ""
+    if mode == "KARDASHEV2":
+        # Call the Kardashev 2 swarm
+        bot_message = Kardashev2.run_kardashev2_mode(message or "", client)
+        new_history = chat_history + [(message or "[Kardashev 2 Input]", bot_message)]
+        yield new_history, ""
+    else: 
+        image_url = extract_image_url(message) if message else None
+        model = VISION_MODEL if (file_input and Path(file_input).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS) or image_url else DEFAULT_MODEL
+        bot_message = ""
+        new_history = chat_history + [(message or "[File uploaded]", bot_message)]
+        yield new_history, ""
 
     for delta in query_grok_streaming(
         message or "", [(h, a) for h, a in chat_history],
@@ -744,7 +749,7 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
         )
 
         def toggle_mode(current_mode: str):
-            modes = ["LEARNING", "POLISH", "HARDCORE"]
+            modes = ["LEARNING", "POLISH", "HARDCORE", "KARDASHEV2"]
             current_index = modes.index(current_mode)
             new_mode = modes[(current_index + 1) % len(modes)]
             return new_mode, gr.update(value=new_mode)
