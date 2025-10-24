@@ -279,29 +279,29 @@ def respond(
         yield chat_history, ""
         return
     if mode == "KARDASHEV2":
-        # Call the Kardashev 2 swarm
+        # Call the Kardashev 2 swarm (synchronous, no streaming)
         bot_message = Kardashev2.run_kardashev2_mode(message or "", client)
         new_history = chat_history + [(message or "[Kardashev 2 Input]", bot_message)]
         yield new_history, ""
     else: 
+        # Handle non-KARDASHEV2 modes with streaming
         image_url = extract_image_url(message) if message else None
         model = VISION_MODEL if (file_input and Path(file_input).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS) or image_url else DEFAULT_MODEL
         bot_message = ""
         new_history = chat_history + [(message or "[File uploaded]", bot_message)]
-        yield new_history, ""
-        # Streaming only for non-KARDASHEV2 modes
-        for delta in query_grok_streaming(message or "", [(h, a) for h, a in chat_history], model=model, image_url=image_url, file_input=file_input, mode=mode):
+        yield new_history, ""  # Yield initial empty response
+        # Stream the response
+        for delta in query_grok_streaming(
+            message or "", 
+            [(h, a) for h, a in chat_history], 
+            model=model, 
+            image_url=image_url, 
+            file_input=file_input, 
+            mode=mode
+        ):
             bot_message += delta
             new_history[-1] = (message or "[File uploaded]", bot_message)
             yield new_history, ""
-
-    for delta in query_grok_streaming(
-        message or "", [(h, a) for h, a in chat_history],
-        model=model, image_url=image_url, file_input=file_input, mode=mode
-    ):
-        bot_message += delta
-        new_history[-1] = (message or "[File uploaded]", bot_message)
-        yield new_history, ""
 
 def parse_timecode(tc: str) -> float:
     if not tc.strip():
