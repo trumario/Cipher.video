@@ -289,6 +289,11 @@ def respond(
         bot_message = ""
         new_history = chat_history + [(message or "[File uploaded]", bot_message)]
         yield new_history, ""
+        # Streaming only for non-KARDASHEV2 modes
+        for delta in query_grok_streaming(message or "", [(h, a) for h, a in chat_history], model=model, image_url=image_url, file_input=file_input, mode=mode):
+            bot_message += delta
+            new_history[-1] = (message or "[File uploaded]", bot_message)
+            yield new_history, ""
 
     for delta in query_grok_streaming(
         message or "", [(h, a) for h, a in chat_history],
