@@ -20,33 +20,26 @@ import numpy as np
 import gradio as gr
 from openai import OpenAI, APIError, AuthenticationError
 
-# ==============================
-# === CONSTANTS & CONFIGURATION
-# ==============================
-
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# API Configuration
 XAI_API_BASE_URL = "https://api.x.ai/v1"
 DEFAULT_MODEL = "grok-code-fast-1"
 VISION_MODEL = "grok-4-fast-reasoning"
 XAI_API_KEY = os.getenv("XAI_API_KEY")
 
-# App Configuration
 DEFAULT_PORT = 5000
 MIN_PORT = 1
 MAX_PORT = 65535
-MAX_THREADS = min(os.cpu_count() or 4, 8)  # Cap at 8 for I/O-heavy video tasks
+MAX_THREADS = min(os.cpu_count() or 4, 8)
 MAX_FILE_SIZE_GB = 10
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_GB * 1024**3
 MAX_IMAGE_FILE_SIZE_BYTES = 50 * 1024 * 1024
 MAX_CODE_FILE_SIZE_BYTES = 10 * 1024 * 1024
 
-# Video Processing
 SUPPORTED_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv'}
 SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
 SUPPORTED_CODE_EXTENSIONS = {'.py', '.js', '.txt', '.cpp', '.c', '.h', '.java', '.html', '.css', '.json', '.xml', '.md', '.sh', '.bat', '.yml', '.yaml'}
@@ -62,24 +55,17 @@ URL_MAX_LENGTH = 2048
 QUERY_MAX_LENGTH = 1024
 FPS_ASSUMPTION_FOR_JS = 30
 
-# ECC Alignment
 ECC_ITERATIONS = 50
 ECC_EPSILON = 1e-10
 ECC_MOTION_MODEL = cv2.MOTION_HOMOGRAPHY
 ALIGN_THRESHOLD = 0.6
 
-# OpenAI
 TEMPERATURE = 0.7
 MAX_COMPLETION_TOKENS = 16384
 
-# Secure Upload Directory
 UPLOAD_DIR = tempfile.mkdtemp(prefix="cipher_uploads_")
 atexit.register(lambda: shutil.rmtree(UPLOAD_DIR, ignore_errors=True))
 ALLOWED_BASE_DIR = Path(UPLOAD_DIR).resolve()
-
-# ==============================
-# === SYSTEM PROMPTS (LEARNING & POLISH)
-# ==============================
 
 SYSTEM_PROMPT_LEARNING = """You are a senior software engineer and patient mentor. Your job is to help me write, understand, and improve code — not just deliver perfect code.
 
@@ -126,12 +112,7 @@ Output:
 
 Do not teach. Do not explain. Deliver perfection."""
 
-# ==============================
-# === CLIENT & VALIDATION
-# ==============================
-
 def create_xai_client() -> Optional[OpenAI]:
-    """Create xAI client with secure validation."""
     if not XAI_API_KEY:
         logger.warning("XAI_API_KEY not found. AI functionality is limited.")
         return None
@@ -153,7 +134,6 @@ def create_xai_client() -> Optional[OpenAI]:
 client = create_xai_client()
 
 def extract_image_url(message: str) -> Optional[str]:
-    """Extract image URLs with bounds checking."""
     if not message or not isinstance(message, str):
         return None
     url_pattern = re.compile(
@@ -164,7 +144,6 @@ def extract_image_url(message: str) -> Optional[str]:
     return match.group(0) if match else None
 
 def validate_file(file_path: str, supported_extensions: set, max_size_bytes: int) -> bool:
-    """Validate file path, size, extension, and confinement to upload directory."""
     try:
         path = Path(file_path).resolve()
         if not path.exists() or not path.is_file():
@@ -187,10 +166,6 @@ def validate_file(file_path: str, supported_extensions: set, max_size_bytes: int
         logger.error(f"Validation error: {e}")
         return False
 
-# ==============================
-# === AI CHAT WITH MODE
-# ==============================
-
 def query_grok_streaming(
     user_input: str,
     history: Optional[List[Tuple[str, str]]] = None,
@@ -199,7 +174,6 @@ def query_grok_streaming(
     file_input: Optional[str] = None,
     mode: str = "LEARNING"
 ) -> Generator[str, None, None]:
-    """Query Grok API with streaming and mode-aware system prompt."""
     if history is None:
         history = []
     if client is None:
@@ -283,9 +257,17 @@ def respond(
     file_input: Optional[str],
     mode: str
 ) -> Generator[Tuple[List[Tuple[str, str]], str], None, None]:
-    """Handle chat response with mode."""
     if not message.strip() and not file_input:
         yield chat_history, ""
+        return
+
+    if mode == "HARDCORE":
+        final_code, _, proof = run_hardcore_mode(message, 10.0)
+        learning_desc = "This is a learning-focused refactor: Break problems into steps, explain code, verify with tests. See API docs at https://docs.python.org/3/ and https://www.gradio.app/docs/."
+        proof_md = f"**Proof**: Score {proof['score']}/10, Time {proof['duration']}, Agents {proof['agents_ran']}. Log: {'; '.join(proof['proof_log'])}."
+        bot_message = f"### HARDCORE COMPLETE\n**Drop-In Code** (Copy Ready):\n```python\n{final_code}\n```\n{learning_desc}\n{proof_md}"
+        new_history = chat_history + [(message or "[File uploaded]", bot_message)]
+        yield new_history, ""
         return
 
     image_url = extract_image_url(message) if message else None
@@ -302,12 +284,7 @@ def respond(
         new_history[-1] = (message or "[File uploaded]", bot_message)
         yield new_history, ""
 
-# ==============================
-# === VIDEO PROCESSING
-# ==============================
-
 def parse_timecode(tc: str) -> float:
-    """Parse HH:MM:SS.ms to seconds."""
     if not tc.strip():
         return 0.0
     try:
@@ -322,7 +299,6 @@ def parse_timecode(tc: str) -> float:
         raise ValueError(f"Invalid timecode: {tc}") from e
 
 def align_frames(base_frame: np.ndarray, ghost_frame: np.ndarray, prev_warp: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Align frames using ECC."""
     base_gray = cv2.cvtColor(base_frame, cv2.COLOR_BGR2GRAY)
     ghost_gray = cv2.cvtColor(ghost_frame, cv2.COLOR_BGR2GRAY)
     warp_matrix = np.eye(3, 3, dtype=np.float32)
@@ -355,7 +331,6 @@ def overlay_videos(
     duration_sec: Optional[float], frame_skip: int,
     resolution_scale: float, progress: Optional[gr.Progress] = None
 ) -> Tuple[Optional[str], str]:
-    """Overlay videos with alignment and threading."""
     cap_base = cap_ghost = out = None
     try:
         if not (validate_file(base_path, SUPPORTED_VIDEO_EXTENSIONS, MAX_FILE_SIZE_BYTES) and
@@ -454,7 +429,6 @@ def process_video_overlay(
     duration: str, frame_skip: int, resolution_scale: float,
     progress: gr.Progress = gr.Progress()
 ) -> Tuple[Optional[str], Optional[str], dict, str]:
-    """Process video overlay with user inputs and progress tracking."""
     logger.info(f"Received inputs: base_upload={base_upload}, ghost_upload={ghost_upload}, alpha={alpha}, frame_skip={frame_skip}")
     if not base_upload or not ghost_upload:
         return None, None, gr.update(visible=False), "Please upload both base and ghost videos."
@@ -486,7 +460,6 @@ def process_video_overlay(
     return result_path, result_path, download_update, status_msg
 
 def get_current_time_js(video_id: str) -> str:
-    """Generate JS to get current video time, format as HH:MM:SS.mmm."""
     return f"""() => {{
         const vid = document.querySelector('#{video_id} video');
         if (!vid) return '00:00:00.000';
@@ -497,10 +470,6 @@ def get_current_time_js(video_id: str) -> str:
         const ms = String(Math.floor((t % 1) * 1000)).padStart(3, '0');
         return `${{hours}}:${{mins}}:${{secs}}.${{ms}}`;
     }}"""
-
-# ==============================
-# === CUSTOM CSS (FULL)
-# ==============================
 
 CUSTOM_CSS = """
 meta[name="viewport"] { content: "width=device-width, initial-scale=1.0, maximum-scale=5.0"; }
@@ -684,10 +653,6 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
 .emoji, .fun-icon { display: none; }
 """
 
-# ==============================
-# === GRADIO INTERFACE WITH MODE TOGGLE
-# ==============================
-
 with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
     gr.HTML("""
     <script>
@@ -733,7 +698,6 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
     </script>
     """)
 
-    # Header
     with gr.Row():
         with gr.Column(scale=9):
             gr.Markdown(
@@ -746,7 +710,6 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
                 return null;
             }""")
 
-    # Code Tab
     with gr.Tab("Code"):
         mode_state = gr.State("LEARNING")
         with gr.Row():
@@ -762,47 +725,18 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
             outputs=[chatbot, textbox]
         )
 
-    def toggle_mode(current_mode: str):
-        new_mode = "POLISH" if current_mode == "LEARNING" else "LEARNING"
-        return new_mode, gr.update(value=new_mode)
+        def toggle_mode(current_mode: str):
+            modes = ["LEARNING", "POLISH", "HARDCORE"]
+            current_index = modes.index(current_mode)
+            new_mode = modes[(current_index + 1) % len(modes)]
+            return new_mode, gr.update(value=new_mode)
 
-    mode_btn.click(
-        toggle_mode,
-        inputs=mode_state,
-        outputs=[mode_state, mode_btn]) 
+        mode_btn.click(
+            toggle_mode,
+            inputs=mode_state,
+            outputs=[mode_state, mode_btn]
+        )
 
-    # === ADD TO GRADIO BLOCK (after mode toggle) ===
-    with gr.Row():
-        hardcore_btn = gr.Button("HARDCORE", variant="stop")
-        intensity_slider = gr.Slider(1, 10, value=9.9, step=0.1, label="Intensity")
-
-    hardcore_output = gr.Code(label="Code (Drop-In Ready)", language="python")
-    hardcore_diff = gr.Code(label="Diff")
-    hardcore_proof = gr.Markdown()
-
-    def trigger_hardcore(code: str, intensity: float, mode: str):
-        if mode != "POLISH":
-            return "Switch to POLISH first", "", ""
-
-        final_code, diff, proof = run_hardcore_mode(code, intensity)
-
-        proof_md = f"""
-    ### HARDCORE COMPLETE
-    **Score**: `{proof['score']}/10`  
-    **Time**: `{proof['duration']}`  
-    **Agents**: `{proof['agents_ran']}`  
-
-    **Proof Log**:
-    {textwrap.indent('/n'.join(proof['proof_log']), '  - ')}
-    """
-        return final_code, diff, proof_md
-
-    hardcore_btn.click(
-        trigger_hardcore,
-        inputs=[textbox, intensity_slider, mode_state],
-        outputs=[hardcore_output, hardcore_diff, hardcore_proof]
-    )
-    # Video Tab
     with gr.Tab("Video"):
         gr.Markdown(
             f"""**Note**: Maximum file size per video is {MAX_FILE_SIZE_GB}GB.
@@ -840,10 +774,6 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
             outputs=[output_video, save_location, download_btn, status_output],
             show_progress="full"
         )
-
-# ==============================
-# === LAUNCH
-# ==============================
 
 if __name__ == "__main__":
     try:
