@@ -1,3 +1,4 @@
+# === REFACTORED CODE ===
 import os
 import re
 import cv2
@@ -610,24 +611,23 @@ button:hover, .gr-button:hover { background-color: var(--button-hover); }
 .theme-toggle {
     width: 32px;
     height: 32px;
-    padding: 6px;
-    font-size: 16px;
-    border-radius: 4px;
-    background-color: var(--button-bg);
-    color: var(--text-color);
+    padding: 0;
+    border-radius: 50%;
+    background: linear-gradient(180deg, #ffffff 50%, #000000 50%);
     border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: transform 0.3s ease;
 }
-.gr-progress {
-    background-color: var(--progress-bg);
-    border-radius: 4px;
-    height: 16px;
-    margin: 4px 0;
+.theme-toggle:hover {
+    transform: scale(1.1);
 }
-.gr-progress .progress-bar {
-    background-color: var(--progress-fill);
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.2s ease;
+.mode-toggle {
+    padding: 4px 8px;
+    font-size: 12px;
+    min-height: 24px;
+}
+.mode-toggle.hidden {
+    display: none;
 }
 .input-container {
     display: flex;
@@ -735,32 +735,20 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
     with gr.Row():
         with gr.Column(scale=9):
             gr.Markdown(
-                """<h1 style="font-family: 'Courier New', monospace; font-weight: bold; color: var(--text-color); text-transform: uppercase; letter-spacing: 2px;">CIPHER</h1>"""
+                """<h1 style="font-family: 'Courier New', monospace; font-weight: bold; color: var(--text-color); text-transform: uppercase; letter-spacing: 2px;">CIPHER Code</h1>"""
             )
         with gr.Column(scale=1, min_width=80):
-            toggle_btn = gr.Button("Theme", size="sm", elem_classes=["theme-toggle"])
+            toggle_btn = gr.Button("", size="sm", elem_classes=["theme-toggle"])
             toggle_btn.click(None, js="""() => {
                 document.body.classList.toggle('light');
                 return null;
             }""")
 
-    # MODE TOGGLE BUTTON
-    mode_state = gr.State("LEARNING")
-    with gr.Row():
-        mode_btn = gr.Button("LEARNING", variant="secondary", scale=1)
-
-    def toggle_mode(current_mode: str):
-        new_mode = "POLISH" if current_mode == "LEARNING" else "LEARNING"
-        return new_mode, gr.update(value=new_mode)
-
-    mode_btn.click(
-        toggle_mode,
-        inputs=mode_state,
-        outputs=[mode_state, mode_btn]
-    )
-
     # Code Tab
     with gr.Tab("Code"):
+        mode_state = gr.State("LEARNING")
+        with gr.Row():
+            mode_btn = gr.Button("LEARNING", variant="secondary", scale=1, elem_classes=["mode-toggle"])
         chatbot = gr.Chatbot(height="60vh")
         with gr.Row(elem_classes=["input-container"]):
             attach_btn = gr.Button("Attach", elem_classes=["attach-btn"])
@@ -776,6 +764,16 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
             inputs=[textbox, chatbot, file_input, mode_state],
             outputs=[chatbot, textbox]
         )
+
+    def toggle_mode(current_mode: str):
+        new_mode = "POLISH" if current_mode == "LEARNING" else "LEARNING"
+        return new_mode, gr.update(value=new_mode)
+
+    mode_btn.click(
+        toggle_mode,
+        inputs=mode_state,
+        outputs=[mode_state, mode_btn]
+    )
 
     # Video Tab
     with gr.Tab("Video"):
