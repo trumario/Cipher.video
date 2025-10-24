@@ -10,6 +10,8 @@ import time
 import atexit
 import tempfile
 import shutil
+import textwrap
+from hardcore import run_hardcore_mode
 from pathlib import Path
 from typing import List, Optional, Tuple, Generator
 from concurrent.futures import ThreadPoolExecutor
@@ -767,9 +769,39 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
     mode_btn.click(
         toggle_mode,
         inputs=mode_state,
-        outputs=[mode_state, mode_btn]
-    )
+        outputs=[mode_state, mode_btn]) 
 
+    # === ADD TO GRADIO BLOCK (after mode toggle) ===
+    with gr.Row():
+        hardcore_btn = gr.Button("HARDCORE", variant="stop")
+        intensity_slider = gr.Slider(1, 10, value=9.9, step=0.1, label="Intensity")
+
+    hardcore_output = gr.Code(label="Code (Drop-In Ready)", language="python")
+    hardcore_diff = gr.Code(label="Diff")
+    hardcore_proof = gr.Markdown()
+
+    def trigger_hardcore(code: str, intensity: float, mode: str):
+        if mode != "POLISH":
+            return "Switch to POLISH first", "", ""
+
+        final_code, diff, proof = run_hardcore_mode(code, intensity)
+
+        proof_md = f"""
+    ### HARDCORE COMPLETE
+    **Score**: `{proof['score']}/10`  
+    **Time**: `{proof['duration']}`  
+    **Agents**: `{proof['agents_ran']}`  
+
+    **Proof Log**:
+    {textwrap.indent('/n'.join(proof['proof_log']), '  - ')}
+    """
+        return final_code, diff, proof_md
+
+    hardcore_btn.click(
+        trigger_hardcore,
+        inputs=[textbox, intensity_slider, mode_state],
+        outputs=[hardcore_output, hardcore_diff, hardcore_proof]
+    )
     # Video Tab
     with gr.Tab("Video"):
         gr.Markdown(
