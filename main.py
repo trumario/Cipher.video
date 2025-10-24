@@ -727,10 +727,15 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
         with gr.Row():
             mode_btn = gr.Button("LEARNING", variant="secondary", scale=1, elem_classes=["mode-toggle"])
         chatbot = gr.Chatbot(height="60vh")
-        file_input = gr.File(label="Upload Image for Vision Analysis", file_types=list(SUPPORTED_IMAGE_EXTENSIONS), visible=True, scale=1)
-        with gr.Row(elem_classes=["input-container"]):
-            textbox = gr.Textbox(placeholder="Describe the image or ask a question...", show_label=False, container=False, scale=10, lines=5)
-            submit_btn = gr.Button("Analyze", elem_classes=["submit-btn"])
+        with gr.Row():
+            with gr.Column(scale=0):
+                file_input = gr.File(label="", file_types=list(SUPPORTED_IMAGE_EXTENSIONS), visible=False, elem_id="image_upload")
+            with gr.Column(scale=1):
+                with gr.Row(elem_classes=["input-container"]):
+                    attach_btn = gr.Button("📎", elem_classes=["attach-btn"])
+                    textbox = gr.Textbox(placeholder="Describe the image or ask a question...", show_label=False, container=False, scale=10, lines=5)
+                    submit_btn = gr.Button("Analyze", elem_classes=["submit-btn"])
+        attach_btn.click(None, js="() => { const fileInput = document.getElementById('image_upload').querySelector('input[type=\"file\"]'); if (fileInput) fileInput.click(); }")
         submit_btn.click(
             respond,
             inputs=[textbox, chatbot, file_input, mode_state],
