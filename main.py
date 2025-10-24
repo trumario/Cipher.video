@@ -750,15 +750,10 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
         with gr.Row():
             mode_btn = gr.Button("LEARNING", variant="secondary", scale=1, elem_classes=["mode-toggle"])
         chatbot = gr.Chatbot(height="60vh")
+        file_input = gr.File(label="Upload Image or Code File (Drag & Drop or Click)", file_types=list(SUPPORTED_IMAGE_EXTENSIONS | SUPPORTED_CODE_EXTENSIONS), visible=True)
         with gr.Row(elem_classes=["input-container"]):
-            attach_btn = gr.Button("Attach", elem_classes=["attach-btn"])
             textbox = gr.Textbox(placeholder="Enter code or image URL...", show_label=False, container=False, scale=10, lines=5)
             submit_btn = gr.Button("Send", elem_classes=["submit-btn"])
-        file_input = gr.File(label="Upload Image or Code File", file_types=list(SUPPORTED_IMAGE_EXTENSIONS | SUPPORTED_CODE_EXTENSIONS), elem_id="file_upload", visible=False)
-        attach_btn.click(None, js="""() => {
-            const input = document.querySelector('#file_upload input[type="file"]');
-            if (input) input.click();
-        }""")
         submit_btn.click(
             respond,
             inputs=[textbox, chatbot, file_input, mode_state],
