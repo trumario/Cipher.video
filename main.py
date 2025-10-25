@@ -11,7 +11,6 @@ import atexit
 import tempfile
 import shutil
 import textwrap
-import Kardashev2  # New import
 from pathlib import Path
 from typing import List, Optional, Tuple, Generator
 from concurrent.futures import ThreadPoolExecutor
@@ -278,30 +277,23 @@ def respond(
     if not message.strip() and not file_input:
         yield chat_history, ""
         return
-    if mode == "KARDASHEV2":
-        # Call the Kardashev 2 swarm (synchronous, no streaming)
-        bot_message = Kardashev2.run_kardashev2_mode(message or "", client)
-        new_history = chat_history + [(message or "[Kardashev 2 Input]", bot_message)]
+    image_url = extract_image_url(message) if message else None
+    model = VISION_MODEL if (file_input and Path(file_input).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS) or image_url else DEFAULT_MODEL
+    bot_message = ""
+    new_history = chat_history + [(message or "[File uploaded]", bot_message)]
+    yield new_history, ""  # Yield initial empty response
+    # Stream the response
+    for delta in query_grok_streaming(
+        message or "", 
+        [(h, a) for h, a in chat_history], 
+        model=model, 
+        image_url=image_url, 
+        file_input=file_input, 
+        mode=mode
+    ):
+        bot_message += delta
+        new_history[-1] = (message or "[File uploaded]", bot_message)
         yield new_history, ""
-    else: 
-        # Handle non-KARDASHEV2 modes with streaming
-        image_url = extract_image_url(message) if message else None
-        model = VISION_MODEL if (file_input and Path(file_input).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS) or image_url else DEFAULT_MODEL
-        bot_message = ""
-        new_history = chat_history + [(message or "[File uploaded]", bot_message)]
-        yield new_history, ""  # Yield initial empty response
-        # Stream the response
-        for delta in query_grok_streaming(
-            message or "", 
-            [(h, a) for h, a in chat_history], 
-            model=model, 
-            image_url=image_url, 
-            file_input=file_input, 
-            mode=mode
-        ):
-            bot_message += delta
-            new_history[-1] = (message or "[File uploaded]", bot_message)
-            yield new_history, ""
 
 def parse_timecode(tc: str) -> float:
     if not tc.strip():
@@ -754,7 +746,7 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
         )
 
         def toggle_mode(current_mode: str):
-            modes = ["LEARNING", "POLISH", "HARDCORE", "KARDASHEV2"]
+            modes = ["LEARNING", "POLISH", "HARDCORE"]
             current_index = modes.index(current_mode)
             new_mode = modes[(current_index + 1) % len(modes)]
             return new_mode, gr.update(value=new_mode)

@@ -7,11 +7,12 @@ agents = [
     # ... (paste the full 20-agent list from the previous response)
 ]
 
+
 def run_kardashev2_mode(user_input: str, client: Optional[OpenAI]) -> str:
     """Simulate billions of humans inventing via first principles. Swarm of 20 unique agents."""
     if not client:
         return "Error: AI client needed for Kardashev 2 swarm."
-    
+
     # Swarm: Each agent generates an invention idea (same as before)
     swarm_ideas = []
     for agent in agents:
@@ -25,15 +26,17 @@ def run_kardashev2_mode(user_input: str, client: Optional[OpenAI]) -> str:
         try:
             response = client.chat.completions.create(
                 model="grok-4-fast-reasoning",
-                messages=[{"role": "user", "content": prompt}],
+                messages=[{
+                    "role": "user",
+                    "content": prompt
+                }],
                 temperature=0.9,
-                max_tokens=1024
-            )
+                max_tokens=1024)
             idea = response.choices[0].message.content
             swarm_ideas.append(f"{agent['name']}: {idea}")
         except Exception as e:
             swarm_ideas.append(f"{agent['name']}: Failed - {e}")
-    
+
     # Synthesis: Triangulate and infer best explanation
     synthesis_prompt = f"""
     Swarm ideas: {swarm_ideas}
@@ -43,10 +46,12 @@ def run_kardashev2_mode(user_input: str, client: Optional[OpenAI]) -> str:
     try:
         final_response = client.chat.completions.create(
             model="grok-4-fast-reasoning",
-            messages=[{"role": "user", "content": synthesis_prompt}],
+            messages=[{
+                "role": "user",
+                "content": synthesis_prompt
+            }],
             temperature=0.7,
-            max_tokens=2048
-        )
+            max_tokens=2048)
         return final_response.choices[0].message.content
     except Exception as e:
         return f"Synthesis failed: {e}"
