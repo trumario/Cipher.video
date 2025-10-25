@@ -736,7 +736,7 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
             with gr.Column(scale=1):
                 with gr.Row(elem_classes=["input-container"]):
                     attach_btn = gr.Button("📎", elem_classes=["attach-btn"])
-                    textbox = gr.Textbox(placeholder="Select mode at the top then start chatting", show_label=False, container=False, scale=10, lines=5)
+                    textbox = gr.Textbox(placeholder="Toggle between learning, polish and hardcore modes at the top. Drop full file in then start chatting", show_label=False, container=False, scale=10, lines=5)
                     submit_btn = gr.Button("Code", elem_classes=["submit-btn"])
         attach_btn.click(None, js="() => { const fileInput = document.getElementById('image_upload').querySelector('input[type=\"file\"]'); if (fileInput) fileInput.click(); }")
         submit_btn.click(
