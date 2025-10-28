@@ -22,9 +22,7 @@
 - Adaptive quality settings (resolution scaling, frame skip)
 - Supports files up to 10GB (MP4, MOV, AVI, MKV)
 
-### Advanced Analysis Modes
-
-#### 🔥 Hardcore Mode (10-Agent System)
+### 🔥 Hardcore Mode (10-Agent System)
 Comprehensive code analysis through specialized agents:
 - **API Doc Diver**: Live documentation lookup
 - **Architect**: Structural analysis & MVC recommendations
@@ -36,16 +34,6 @@ Comprehensive code analysis through specialized agents:
 - **Feature Innovator**: New feature suggestions
 - **Cost Optimizer**: API call reduction
 - **Synthesis Engine**: Merges outputs into 9.9/10 code
-
-#### 🌌 Kardashev 2 Mode (20-Agent Swarm)
-Simulates billions of humans inventing via first principles:
-- 20 unique agents with specialized methodologies
-- First principles thinking & growth mindset
-- Critical analysis & depth simulation
-- Invention prototyping with Python code
-- Credibility scoring (0-1 scale)
-- Triangulation & inference to best explanation
-- Type 2 civilization-level output
 
 ## 🚀 Quick Start
 
@@ -86,7 +74,6 @@ python main.py
 cipher/
 ├── main.py                 # Main Gradio application
 ├── hardcore.py             # 10-agent hardcore analysis system
-├── Kardashev2.py          # 20-agent swarm intelligence module
 ├── static/                # Static assets
 ├── attached_assets/       # User-uploaded assets
 ├── README.md             # This file
@@ -106,9 +93,7 @@ cipher/
 3. Configure frame skip and resolution scale
 4. Process and download the overlay result
 
-### Advanced Modes
-
-#### Using Hardcore Mode
+### Hardcore Mode
 ```python
 from hardcore import run_hardcore_mode
 
@@ -119,16 +104,6 @@ print(f"Score: {proof['score']}")
 print(f"Agents ran: {proof['agents_ran']}")
 print(f"Duration: {proof['duration']}")
 print("\nDiff:\n", diff)
-```
-
-#### Using Kardashev 2 Mode
-```python
-from Kardashev2 import run_kardashev2_mode
-from openai import OpenAI
-
-client = OpenAI(base_url="https://api.x.ai/v1", api_key="your_key")
-invention = run_kardashev2_mode("Solve climate change", client)
-print(invention)
 ```
 
 ## 🛠️ Configuration
@@ -164,7 +139,6 @@ print(invention)
 ### AI Models
 - `grok-code-fast-1`: Rapid code analysis
 - `grok-4-0709`: Image and visual analysis
-- `grok-4-fast-reasoning`: Advanced swarm intelligence
 
 ## 🔒 Security
 
@@ -180,7 +154,7 @@ print(invention)
 - Batch frame operations
 - Smart transformation matrix caching
 - ECC fallback algorithms
-- Parallel agent execution (max 20 threads)
+- Parallel agent execution (up to 10 threads)
 
 ## 🤝 Contributing
 
@@ -205,7 +179,6 @@ For issues or questions, please refer to the detailed technical documentation in
 - [ ] Add GIF export functionality
 - [ ] Implement real-time video preview
 - [ ] Add more agent types to Hardcore mode
-- [ ] Expand Kardashev mode to 50+ agents
 - [ ] Add batch video processing
 - [ ] Implement video filters and effects
 

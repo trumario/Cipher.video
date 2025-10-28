@@ -23,9 +23,7 @@ A sophisticated web application that combines AI-powered code analysis with adva
 - **Large File Support**: Handles video files up to 10GB with built-in validation
 - **Format Compatibility**: Support for MP4, MOV, AVI, and MKV video formats
 
-### 🚀 Advanced Analysis Modules
-
-#### Hardcore Mode (hardcore.py)
+### 🚀 Hardcore Mode Analysis (hardcore.py)
 - **10-Agent Swarm System**: Parallel execution of specialized code analysis agents
 - **API Documentation Diver**: Live API documentation lookup for all function calls
 - **Architect Agent**: Structural analysis and MVC pattern recommendations
@@ -39,19 +37,6 @@ A sophisticated web application that combines AI-powered code analysis with adva
 - **Synthesis Engine**: Merges all agent outputs into 9.9/10 quality code
 - **Diff Generation**: Unified diff output showing before/after improvements
 - **Proof of Work**: Detailed logs and metrics for all agent analyses
-
-#### Kardashev 2 Mode (Kardashev2.py)
-- **20-Agent Swarm Intelligence**: Simulates billions of humans inventing via first principles
-- **Multi-Agent Reasoning**: Each agent approaches problems from unique perspectives
-- **First Principles Thinking**: Breaks down problems to fundamental truths
-- **Growth Mindset Engine**: Reframes challenges as opportunities
-- **Critical Analysis**: Questions assumptions and validates reasoning
-- **Depth Simulation**: Simulates extensive research and development
-- **Invention Prototyping**: Generates Python code prototypes for novel ideas
-- **Credibility Scoring**: Rates invention probability and feasibility (0-1 scale)
-- **Triangulation**: Cross-verifies ideas across multiple agent perspectives
-- **Inference to Best Explanation**: Selects optimal invention via IBE methodology
-- **Type 2 Civilization Output**: Generates inventions at Kardashev Scale Type 2 level
 
 ### 🎛️ Interactive Controls
 - **Frame-by-Frame Navigation**: Arrow key controls for precise video positioning
@@ -67,7 +52,6 @@ A sophisticated web application that combines AI-powered code analysis with adva
 cipher/
 ├── main.py                 # Main Gradio application
 ├── hardcore.py             # 10-agent hardcore analysis system
-├── Kardashev2.py          # 20-agent swarm intelligence module
 ├── static/                # Static assets
 ├── attached_assets/       # User-uploaded assets
 └── replit.md             # This documentation file
@@ -102,7 +86,6 @@ cipher/
 ### xAI Grok API
 - **Text Model**: `grok-code-fast-1` for rapid code analysis
 - **Vision Model**: `grok-4-0709` for image and visual content analysis
-- **Reasoning Model**: `grok-4-fast-reasoning` for advanced swarm intelligence
 - **Streaming Support**: Server-sent events for real-time response delivery
 - **Automatic Model Selection**: Dynamic switching based on input content type
 - **Secure Authentication**: Environment-based API key management
@@ -117,7 +100,7 @@ cipher/
 - **Resource Limits**: Configurable thread limits and processing constraints
 
 ### Environment Variables
-- `XAI_API_KEY`: Required for AI functionality (code analysis, hardcore mode, Kardashev mode)
+- `XAI_API_KEY`: Required for AI functionality (code analysis, hardcore mode)
 - `PORT`: Server port (default: 5000)
 
 ### Security Features
@@ -185,21 +168,6 @@ Returns:
 - **final_code**: Improved code after all agent analyses
 - **diff**: Unified diff showing all changes
 - **proof**: Detailed metrics and logs from all 10 agents
-
-### Kardashev 2 Mode
-The Kardashev2.py module enables swarm intelligence for invention generation:
-```python
-from Kardashev2 import run_kardashev2_mode
-
-# Generate Type 2 civilization inventions
-invention = run_kardashev2_mode(problem_statement, openai_client)
-```
-
-Features:
-- 20 unique agents with specialized focus areas
-- First principles reasoning
-- Credibility scoring and triangulation
-- Python code prototypes for inventions
 
 ## User Preferences
 
