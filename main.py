@@ -109,7 +109,7 @@ Output:
 # === REFACTORED CODE ===
 ```python
 
-Do not teach. Do not explain. Deliver perfection."""
+Do not teach. Explain what changes you made. Deliver perfection."""
 
 def create_xai_client() -> Optional[OpenAI]:
     if not XAI_API_KEY:
