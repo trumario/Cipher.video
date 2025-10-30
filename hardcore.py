@@ -13,9 +13,9 @@ Key improvements in this refactored version:
 - Performance optimizations: Achieved O(n log n) complexity where applicable, minimized allocations,
   and used ThreadPoolExecutor efficiently with bounded workers.
 - Clean code: Removed magic numbers, added named constants, type hints, single responsibility functions,
-  and adhered to PEP 8/20.
+  and adhered to the **official coding standards** of the input language (e.g., PEP 8 & PEP 20 for Python), use **OpenCV** or its language-native equivalent for computer vision.
 - Reliability: Comprehensive input validation, graceful error handling, logging, and resource management.
-- Standards compliance: Follows OpenCV, OpenAI, and general best practices.
+- Standards compliance: Follows OpenCV, and general best practices.
 
 Usage:
     from hardcore import run_hardcore_mode
