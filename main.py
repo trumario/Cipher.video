@@ -33,7 +33,7 @@ DEFAULT_PORT: int = 5000
 MIN_PORT: int = 1
 MAX_PORT: int = 65535
 MAX_THREADS: int = min(os.cpu_count() or 4, 8)
-MAX_FILE_SIZE_GB: int = 10
+MAX_FILE_SIZE_GB: int = 21
 MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_GB * 1024**3
 MAX_IMAGE_FILE_SIZE_BYTES: int = 50 * 1024 * 1024
 MAX_CODE_FILE_SIZE_BYTES: int = 10 * 1024 * 1024
@@ -782,7 +782,7 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
 
     with gr.Tab("Video"):
         gr.Markdown(
-            f"""**Note**: Maximum file size per video is {MAX_FILE_SIZE_GB}GB.
+            f"""**Note**: Maximum file size per video is {MAX_FILE_SIZE_GB}MB.
             Duration must be a positive number or empty. Frame skip (1 to {MAX_FRAME_SKIP}) and resolution scale (0.1 to 1.0) can speed up rendering.
             Start times and duration in HH:MM:SS.mmm format.
             Use left/right arrow keys to scroll videos frame-by-frame after clicking to focus.
