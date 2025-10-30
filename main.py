@@ -387,6 +387,8 @@ def overlay_videos(
         if not out.isOpened():
             return None, "Failed to initialize writer. FFmpeg required."
 
+        # NEW: Added detailed logging to track progress and diagnose failures for longer videos
+        logger.info(f"Starting overlay: base_frames={base_frames_left}, ghost_frames={ghost_frames_left}, total_output_frames={total_output_frames}, fps={fps}, width={width}, height={height}")
         processed = 0
         prev_warp = np.eye(3, 3, dtype=np.float32)
 
