@@ -337,13 +337,14 @@ def overlay_videos(
     duration_sec: Optional[float], frame_skip: int,
     resolution_scale: float, progress: Optional[gr.Progress] = None
 ) -> Tuple[Optional[str], str]:
+    logger.info(f"Starting overlay_videos: base_path={base_path}, ghost_path={ghost_path}, output_path={output_path}")
     """Overlay two videos with pixel-perfect alignment, progress tracking, and multithreading."""
     cap_base = None
     cap_ghost = None
     out = None
     try:
         # Validate inputs
-        if not validate_file(base_path, SUPPORTED_VIDEO_EXTENSIONS) or not validate_file(ghost_path, SUPPORTED_VIDEO_EXTENSIONS):
+        if not validate_file(base_path, SUPPORTED_VIDEO_EXTENSIONS, MAX_FILE_SIZE_BYTES) or not validate_file(ghost_path, SUPPORTED_VIDEO_EXTENSIONS, MAX_FILE_SIZE_BYTES):
             return None, "Error: One or both video files are invalid, inaccessible, have unsupported formats, or exceed size limit."
         if not ALPHA_MIN <= alpha <= ALPHA_MAX:
             return None, f"Error: Alpha must be between {ALPHA_MIN} and {ALPHA_MAX}."
