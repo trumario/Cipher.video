@@ -158,26 +158,20 @@ def validate_file(file_path: str, supported_extensions: set[str], max_size_bytes
         if path.stat().st_size > max_size_bytes or path.stat().st_size <= 0:
             logger.error(f"File size invalid: {path.stat().st_size} bytes")
             return False
-        if not path.is_relative_to(ALLOWED_BASE_DIR):
-            logger.error(f"File {path} outside allowed directory {ALLOWED_BASE_DIR}")
-            return False
         return True
     except Exception as e:
         logger.error(f"Validation error: {e}")
         return False
 
 def secure_file_upload(file_path: str) -> Optional[str]:
-    """Securely move uploaded file to allowed directory to prevent path traversal."""
+    """Simplified: Return the file path if valid, without moving."""
     try:
-        source_path = Path(file_path).resolve()
-        if not source_path.is_relative_to(ALLOWED_BASE_DIR):
-            dest_name = uuid.uuid4().hex + source_path.suffix
-            dest_path = ALLOWED_BASE_DIR / dest_name
-            shutil.move(str(source_path), str(dest_path))
-            return str(dest_path)
-        return file_path
+        path = Path(file_path).resolve()
+        if path.exists() and path.is_file() and os.access(path, os.R_OK):
+            return file_path
+        return None
     except Exception as e:
-        logger.error(f"File upload security error: {e}")
+        logger.error(f"File upload check error: {e}")
         return None
 
 def query_grok_streaming(
@@ -343,101 +337,111 @@ def overlay_videos(
     duration_sec: Optional[float], frame_skip: int,
     resolution_scale: float, progress: Optional[gr.Progress] = None
 ) -> Tuple[Optional[str], str]:
-    cap_base = cap_ghost = out = None
+    """Overlay two videos with pixel-perfect alignment, progress tracking, and multithreading."""
+    cap_base = None
+    cap_ghost = None
+    out = None
     try:
-        secure_base = secure_file_upload(base_path)
-        secure_ghost = secure_file_upload(ghost_path)
-        if not secure_base or not secure_ghost:
-            return None, "File upload security check failed."
-        if not (validate_file(secure_base, SUPPORTED_VIDEO_EXTENSIONS, MAX_FILE_SIZE_BYTES) and
-                validate_file(secure_ghost, SUPPORTED_VIDEO_EXTENSIONS, MAX_FILE_SIZE_BYTES)):
-            return None, "Invalid video file."
-
-        if not (ALPHA_MIN <= alpha <= ALPHA_MAX and base_start_sec >= 0 and ghost_start_sec >= 0 and
-                (duration_sec is None or duration_sec > 0) and 1 <= frame_skip <= MAX_FRAME_SKIP and
-                0.1 <= resolution_scale <= 1.0):
-            return None, "Invalid parameter."
-
-        cap_base = cv2.VideoCapture(secure_base)
-        cap_ghost = cv2.VideoCapture(secure_ghost)
-        if not (cap_base.isOpened() and cap_ghost.isOpened()):
-            return None, "Failed to open video."
-
+        # Validate inputs
+        if not validate_file(base_path, SUPPORTED_VIDEO_EXTENSIONS) or not validate_file(ghost_path, SUPPORTED_VIDEO_EXTENSIONS):
+            return None, "Error: One or both video files are invalid, inaccessible, have unsupported formats, or exceed size limit."
+        if not ALPHA_MIN <= alpha <= ALPHA_MAX:
+            return None, f"Error: Alpha must be between {ALPHA_MIN} and {ALPHA_MAX}."
+        if base_start_sec < 0:
+            return None, "Error: Base start time must be non-negative."
+        if ghost_start_sec < 0:
+            return None, "Error: Ghost start time must be non-negative."
+        if duration_sec is not None and duration_sec <= 0:
+            return None, "Error: Duration must be positive or empty."
+        if frame_skip < 1 or frame_skip > MAX_FRAME_SKIP:
+            return None, f"Error: Frame skip must be between 1 and {MAX_FRAME_SKIP}."
+        if not 0.1 <= resolution_scale <= 1.0:
+            return None, "Error: Resolution scale must be between 0.1 and 1.0."
+        cap_base = cv2.VideoCapture(base_path)
+        cap_ghost = cv2.VideoCapture(ghost_path)
+        if not cap_base.isOpened() or not cap_ghost.isOpened():
+            return None, "Error: Could not open one or both video files."
         cap_base.set(cv2.CAP_PROP_POS_MSEC, base_start_sec * MSEC_PER_SEC)
         cap_ghost.set(cv2.CAP_PROP_POS_MSEC, ghost_start_sec * MSEC_PER_SEC)
-
         fps = cap_base.get(cv2.CAP_PROP_FPS)
         if fps <= 0:
-            return None, "Invalid FPS."
-
+            return None, "Error: Invalid FPS value in base video."
         width = int(cap_base.get(cv2.CAP_PROP_FRAME_WIDTH) * resolution_scale)
         height = int(cap_base.get(cv2.CAP_PROP_FRAME_HEIGHT) * resolution_scale)
         if width <= 0 or height <= 0:
-            return None, "Invalid dimensions."
-
-        base_frames_left = int(cap_base.get(cv2.CAP_PROP_FRAME_COUNT)) - int(cap_base.get(cv2.CAP_PROP_POS_FRAMES))
-        ghost_frames_left = int(cap_ghost.get(cv2.CAP_PROP_FRAME_COUNT)) - int(cap_ghost.get(cv2.CAP_PROP_POS_FRAMES))
-        max_frames = min(base_frames_left, ghost_frames_left,
-                         int(duration_sec * fps) if duration_sec else base_frames_left)
-        total_output_frames = max_frames // frame_skip
-
+            return None, "Error: Invalid video dimensions."
+        # Calculate remaining frames and total output frames for base
+        base_start_frame = int(cap_base.get(cv2.CAP_PROP_POS_FRAMES))
+        base_total_frames = int(cap_base.get(cv2.CAP_PROP_FRAME_COUNT))
+        base_remaining_frames = base_total_frames - base_start_frame
+        if base_remaining_frames <= 0:
+            return None, "Error: No frames available after start time in base video."
+        # Calculate for ghost to ensure sufficient frames
+        ghost_start_frame = int(cap_ghost.get(cv2.CAP_PROP_POS_FRAMES))
+        ghost_total_frames = int(cap_ghost.get(cv2.CAP_PROP_FRAME_COUNT))
+        ghost_remaining_frames = ghost_total_frames - ghost_start_frame
+        if ghost_remaining_frames <= 0:
+            return None, "Error: No frames available after start time in ghost video."
+        max_input_frames = min(
+            base_remaining_frames,
+            ghost_remaining_frames,
+            int(duration_sec * fps) if duration_sec is not None else base_remaining_frames
+        )
+        total_output_frames = max_input_frames // frame_skip
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps / frame_skip, (width, height))
         if not out.isOpened():
-            return None, "Failed to initialize writer. FFmpeg required."
-
-        # NEW: Added detailed logging to track progress and diagnose failures for longer videos
-        logger.info(f"Starting overlay: base_frames={base_frames_left}, ghost_frames={ghost_frames_left}, total_output_frames={total_output_frames}, fps={fps}, width={width}, height={height}")
-        processed = 0
-        prev_warp = np.eye(3, 3, dtype=np.float32)
-
+            return None, "Error: Could not initialize video writer. Ensure OpenCV is built with FFmpeg support."
+        processed_frames = 0
+        prev_warp_matrix = np.eye(3, 3, dtype=np.float32)
         with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-            while processed < total_output_frames:
-                batch_size = min(MAX_THREADS, total_output_frames - processed)
+            while processed_frames < total_output_frames and cap_base.isOpened() and cap_ghost.isOpened():
+                batch_size = min(MAX_THREADS, total_output_frames - processed_frames)
                 batch_bases = []
                 batch_ghosts = []
-
                 for _ in range(batch_size):
-                    ret_b, frame_b = cap_base.read()
-                    ret_g, frame_g = cap_ghost.read()
-                    if not (ret_b and ret_g):
+                    ret_base, frame_base = cap_base.read()
+                    ret_ghost, frame_ghost = cap_ghost.read()
+                    if not ret_base or not ret_ghost:
                         break
                     if resolution_scale != 1.0:
-                        frame_b = cv2.resize(frame_b, (width, height), interpolation=cv2.INTER_CUBIC)
-                        frame_g = cv2.resize(frame_g, (width, height), interpolation=cv2.INTER_CUBIC)
-                    batch_bases.append(frame_b)
-                    batch_ghosts.append(frame_g)
+                        frame_base = cv2.resize(frame_base, (width, height), interpolation=cv2.INTER_CUBIC)
+                        frame_ghost = cv2.resize(frame_ghost, (width, height), interpolation=cv2.INTER_CUBIC)
+                    batch_bases.append(frame_base)
+                    batch_ghosts.append(frame_ghost)
                     for _ in range(frame_skip - 1):
-                        cap_base.read()
-                        cap_ghost.read()
-
-                if not batch_bases:
+                        if not cap_base.read()[0] or not cap_ghost.read()[0]:
+                            break
+                batch_len = len(batch_bases)
+                if batch_len == 0:
                     break
-
+                # Sequentially align frames to maintain stateu
                 aligned_ghosts = []
-                for b, g in zip(batch_bases, batch_ghosts):
-                    aligned, prev_warp = align_frames(b, g, prev_warp)
-                    aligned_ghosts.append(aligned)
-
-                futures = [executor.submit(blend_frames, b, a, alpha) for b, a in zip(batch_bases, aligned_ghosts)]
-                for f in futures:
-                    out.write(f.result())
-
-                processed += len(batch_bases)
-                if progress and processed % PROGRESS_UPDATE_INTERVAL == 0:
-                    progress(processed / total_output_frames, desc=f"Processing {processed}/{total_output_frames}")
-
-        if progress:
-            progress(1.0, desc="Complete")
-        return output_path, f"Successfully processed {processed} frames. Saved to: {output_path}"
-
+                for base_frame, ghost_frame in zip(batch_bases, batch_ghosts):
+                    aligned_ghost, prev_warp_matrix = align_frames(base_frame, ghost_frame, prev_warp_matrix)
+                    aligned_ghosts.append(aligned_ghost)
+                # Parallelize blending
+                futures = [
+                    executor.submit(blend_frames, base, aligned, alpha)
+                    for base, aligned in zip(batch_bases, aligned_ghosts)
+                ]
+                for future in futures:
+                    blended = future.result()
+                    out.write(blended)
+                processed_frames += batch_len
+                if progress and total_output_frames > 0 and processed_frames % PROGRESS_UPDATE_INTERVAL == 0:
+                    progress(processed_frames / total_output_frames, desc=f"Processing {processed_frames}/{total_output_frames} frames")
+        if progress and total_output_frames > 0:
+            progress(1.0, desc=f"Completed {processed_frames}/{total_output_frames} frames")
+        return output_path, f"Successfully processed {processed_frames} frames. Video saved to: {output_path}"
     except Exception as e:
         logger.error(f"Overlay error: {e}")
         return None, f"Video processing failed: {e}"
     finally:
-        for cap in (cap_base, cap_ghost):
-            if cap:
-                cap.release()
+        if cap_base:
+            cap_base.release()
+        if cap_ghost:
+            cap_ghost.release()
         if out:
             out.release()
 
@@ -447,23 +451,22 @@ def process_video_overlay(
     duration: str, frame_skip: int, resolution_scale: float,
     progress: gr.Progress = gr.Progress()
 ) -> Tuple[Optional[str], Optional[str], dict, str]:
-    logger.info(f"Received inputs: base_upload={base_upload}, ghost_upload={ghost_upload}, alpha={alpha}, frame_skip={frame_skip}")
+    """Process video overlay with user inputs and progress tracking."""
+    logger.info(f"Received inputs: base_upload={base_upload}, ghost_upload={ghost_upload}, alpha={alpha}, base_start={base_start}, ghost_start={ghost_start}, duration={duration}, frame_skip={frame_skip}, resolution_scale={resolution_scale}")
     if not base_upload or not ghost_upload:
         return None, None, gr.update(visible=False), "Please upload both base and ghost videos."
-
     try:
         base_start_sec = parse_timecode(base_start)
         ghost_start_sec = parse_timecode(ghost_start)
         duration_sec = parse_timecode(duration) if duration else None
     except ValueError as e:
         return None, None, gr.update(visible=False), str(e)
-
     timestamp = int(time.time())
     unique_id = uuid.uuid4().hex[:8]
     output_path = f"overlay_output_{timestamp}_{unique_id}.mp4"
     result_path, status_msg = overlay_videos(
         base_path=base_upload,
-        ghost_path=ghost_upload,
+        ghost_path=ghost_path,
         output_path=output_path,
         alpha=alpha,
         base_start_sec=base_start_sec,
@@ -473,19 +476,21 @@ def process_video_overlay(
         resolution_scale=resolution_scale,
         progress=progress
     )
-    download_update = gr.update(value=result_path, visible=True) if result_path and os.path.exists(result_path) else gr.update(visible=False)
-    logger.info(f"Overlay result: path={result_path}, message={status_msg}")
+    download_update = gr.update(value=result_path, visible=True) if result_path and os.path.exists(result_path) else gr.update(value=None, visible=False)
+    logger.info(f"Overlay result: path={result_path}, message={status_msg}, download_visible={download_update['visible']}")
     return result_path, result_path, download_update, status_msg
 
 def get_current_time_js(video_id: str) -> str:
+    """Generate JS to get current video time, format as HH:MM:SS.mmm with bounds checking."""
     return f"""() => {{
         const vid = document.querySelector('#{video_id} video');
         if (!vid) return '00:00:00.000';
-        const t = Math.min(vid.currentTime, {MAX_VIDEO_DURATION_SECONDS});
-        const hours = String(Math.floor(t / 3600)).padStart(2, '0');
-        const mins = String(Math.floor((t % 3600) / 60)).padStart(2, '0');
-        const secs = String(Math.floor(t % 60)).padStart(2, '0');
-        const ms = String(Math.floor((t % 1) * 1000)).padStart(3, '0');
+        const t = vid.currentTime;
+        if (t < 0 || t > {MAX_VIDEO_DURATION_SECONDS}) return '00:00:00.000';
+        const hours = Math.floor(t / 3600).toString().padStart(2, '0');
+        const mins = Math.floor((t % 3600) / 60).toString().padStart(2, '0');
+        const secs = Math.floor(t % 60).toString().padStart(2, '0');
+        const ms = Math.floor((t % 1) * 1000).toString().padStart(3, '0');
         return `${{hours}}:${{mins}}:${{secs}}.${{ms}}`;
     }}"""
 
@@ -504,14 +509,6 @@ def validate_video_upload(file_path: str) -> str:
         return ""  # Success, no error
     except Exception as e:
         return f"Video validation error: {e}"
-
-def update_base_status(file: Optional[str]) -> gr.update:
-    error = validate_video_upload(file)
-    return gr.update(value=error, visible=bool(error))
-
-def update_ghost_status(file: Optional[str]) -> gr.update:
-    error = validate_video_upload(file)
-    return gr.update(value=error, visible=bool(error))
 
 CUSTOM_CSS: str = """
 meta[name="viewport"] { content: "width=device-width, initial-scale=1.0, maximum-scale=5.0"; }
@@ -746,7 +743,7 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
                 """<h1 style="font-family: 'Courier New', monospace; font-weight: bold; color: var(--text-color); text-transform: uppercase; letter-spacing: 2px;">CIPHER Code</h1>"""
             )
         with gr.Column(scale=1, min_width=80):
-            toggle_btn = gr.Button("", size="sm", elem_classes=["theme-toggle"])
+            toggle_btn = gr.Button("◐", size="sm", elem_classes=["theme-toggle"])
             toggle_btn.click(None, js="""() => {
                 document.body.classList.toggle('light');
                 return null;
@@ -793,8 +790,6 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
         with gr.Row():
             base_upload = gr.Video(label="Base Video", interactive=True, elem_id="base_video")
             ghost_upload = gr.Video(label="Ghost Video", interactive=True, elem_id="ghost_video")
-        base_error = gr.Textbox(label="Base Video Status", interactive=False, visible=False)
-        ghost_error = gr.Textbox(label="Ghost Video Status", interactive=False, visible=False)
         with gr.Row():
             with gr.Column():
                 base_start = gr.Textbox(value="00:00:00.000", label="Base Start (HH:MM:SS.mmm)")
@@ -815,8 +810,6 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
         status_output = gr.Textbox(label="Status", interactive=False)
         set_base_start.click(fn=None, inputs=[], outputs=base_start, js=get_current_time_js("base_video"))
         set_ghost_start.click(fn=None, inputs=[], outputs=ghost_start, js=get_current_time_js("ghost_video"))
-        base_upload.change(update_base_status, inputs=base_upload, outputs=base_error)
-        ghost_upload.change(update_ghost_status, inputs=ghost_upload, outputs=ghost_error)
         process_btn.click(
             fn=process_video_overlay,
             inputs=[base_upload, ghost_upload, alpha_slider, base_start, ghost_start, duration, frame_skip, resolution_scale],
