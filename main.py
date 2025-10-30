@@ -466,7 +466,7 @@ def process_video_overlay(
     output_path = f"overlay_output_{timestamp}_{unique_id}.mp4"
     result_path, status_msg = overlay_videos(
         base_path=base_upload,
-        ghost_path=ghost_path,
+        ghost_path=ghost_upload,
         output_path=output_path,
         alpha=alpha,
         base_start_sec=base_start_sec,
@@ -843,4 +843,4 @@ if __name__ == "__main__":
         exit(1)
     except Exception as e:
         logger.error(f"Failed to start application: {e}")
-        exit(1)b 
+        exit(1)
