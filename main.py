@@ -1,4 +1,3 @@
-# === REFACTORED CODE ===
 import os
 import re
 import cv2
@@ -490,6 +489,30 @@ def get_current_time_js(video_id: str) -> str:
         return `${{hours}}:${{mins}}:${{secs}}.${{ms}}`;
     }}"""
 
+def validate_video_upload(file_path: str) -> str:
+    """Validate uploaded video immediately."""
+    if not file_path:
+        return "No file uploaded."
+    if not validate_file(file_path, SUPPORTED_VIDEO_EXTENSIONS, MAX_FILE_SIZE_BYTES):
+        return "Invalid video: unsupported format, too large, or outside allowed directory."
+    try:
+        cap = cv2.VideoCapture(file_path)
+        if not cap.isOpened():
+            cap.release()
+            return "Invalid video: cannot open or corrupted."
+        cap.release()
+        return ""  # Success, no error
+    except Exception as e:
+        return f"Video validation error: {e}"
+
+def update_base_status(file: Optional[str]) -> gr.update:
+    error = validate_video_upload(file)
+    return gr.update(value=error, visible=bool(error))
+
+def update_ghost_status(file: Optional[str]) -> gr.update:
+    error = validate_video_upload(file)
+    return gr.update(value=error, visible=bool(error))
+
 CUSTOM_CSS: str = """
 meta[name="viewport"] { content: "width=device-width, initial-scale=1.0, maximum-scale=5.0"; }
 :root {
@@ -770,6 +793,8 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
         with gr.Row():
             base_upload = gr.Video(label="Base Video", interactive=True, elem_id="base_video")
             ghost_upload = gr.Video(label="Ghost Video", interactive=True, elem_id="ghost_video")
+        base_error = gr.Textbox(label="Base Video Status", interactive=False, visible=False)
+        ghost_error = gr.Textbox(label="Ghost Video Status", interactive=False, visible=False)
         with gr.Row():
             with gr.Column():
                 base_start = gr.Textbox(value="00:00:00.000", label="Base Start (HH:MM:SS.mmm)")
@@ -790,6 +815,8 @@ with gr.Blocks(title="Cipher Code", css=CUSTOM_CSS) as demo:
         status_output = gr.Textbox(label="Status", interactive=False)
         set_base_start.click(fn=None, inputs=[], outputs=base_start, js=get_current_time_js("base_video"))
         set_ghost_start.click(fn=None, inputs=[], outputs=ghost_start, js=get_current_time_js("ghost_video"))
+        base_upload.change(update_base_status, inputs=base_upload, outputs=base_error)
+        ghost_upload.change(update_ghost_status, inputs=ghost_upload, outputs=ghost_error)
         process_btn.click(
             fn=process_video_overlay,
             inputs=[base_upload, ghost_upload, alpha_slider, base_start, ghost_start, duration, frame_skip, resolution_scale],
@@ -815,7 +842,8 @@ if __name__ == "__main__":
             max_threads=MAX_THREADS,
             ssl_verify=False,
             inbrowser=False,
-            allowed_paths=[UPLOAD_DIR]
+            allowed_paths=[UPLOAD_DIR],
+            max_file_size=MAX_FILE_SIZE_BYTES
         )
     except ValueError as ve:
         logger.error(f"Configuration error: {ve}")
